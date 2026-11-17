@@ -1,1191 +1,357 @@
-# 🤖 Agentic RAG Research Assistant
+# Agentic RAG Research Assistant
 
-An intelligent research assistant that combines **Retrieval-Augmented Generation (RAG)** with a **multi-agent architecture** to help users search, analyze, verify, compare, and synthesize information from research papers.
+A research workspace for discovering papers, asking questions about uploaded PDFs, comparing findings, creating editable diagrams, and drafting project documents.
 
-The system provides a Streamlit web interface where users can upload research papers, manage indexed documents, ask research questions, receive evidence-grounded answers, inspect the agent workflow, view source references, and download research reports.
+The primary application uses **FastAPI with an HTML, CSS, and JavaScript interface**. A companion **Streamlit application** remains available in `app.py`.
 
-The primary interface is now a FastAPI service with a browser client. The
-original Streamlit interface remains available as a companion implementation.
+## What you can do
 
-## Research workspace upgrade
+| Area | Current features |
+| --- | --- |
+| Research | Ask questions about one paper or all papers in the selected workspace; use simple or technical explanations |
+| Paper library | Upload multiple PDFs, inspect page and passage counts, filter filenames, preview PDFs, and remove papers |
+| Evidence | Inspect retrieved passages and open the corresponding PDF page |
+| Paper discovery | Search arXiv by topic with an optional publication-year filter; follow links to read or download papers |
+| Research history | Reopen completed answers saved to the selected workspace |
+| Diagrams | Generate flowcharts, system architecture, sequence, and entity-relationship diagrams as Mermaid source |
+| Diagram editing | Preview diagrams, edit source, refine through instructions, rename, save versions, and restore earlier versions |
+| Project writer | Draft and edit individual project sections, preview the full document, and autosave drafts in the browser |
+| Exports | Download research reports and project documents in several formats |
+| Interface | Responsive navigation, dark mode, research shortcuts, workflow progress, and elapsed time |
+| Accounts | Register, sign in, sign out, and use separate document/vector storage for each account and workspace |
 
-The FastAPI browser app now provides:
+**Image generation is planned for future development.** The current diagram feature generates structured Mermaid diagrams; it does not generate text-to-image illustrations.
 
-- Responsive navigation, dark mode, question shortcuts, readable Markdown answers and comparison tables.
-- Research history with reopenable answers, stage progress, elapsed time and a stop-waiting control.
-- Batch PDF upload (25 MB per file), library filtering, duplicate checks, clear scanned-PDF messages and page-specific PDF previews with retrieved excerpts.
-- Sign-in, sign-out, password hashing with PBKDF2 and separate document/vector storage per user and workspace. Existing SHA-256 passwords upgrade on successful login.
-- arXiv discovery with publication-year filtering and links to paper/PDF pages.
-- Actual Mermaid previews, editable source, refinement, saved versions and SVG downloads from the preview. Server SVG/PNG/PDF exports use Mermaid CLI to preserve relationships.
-- A project writer with separate sections, evidence-based drafting, editable comparison tables in Markdown, browser autosave and PDF/Word/LaTeX/Markdown export.
-- Paginated PDF reports that retain long lines and Unicode, proper LaTeX escaping and source bundles.
+## Research workflow
 
-Guest mode is a shared local/demo workspace. Sign in before adding private documents to a shared deployment. Personal default workspaces and named workspaces have separate data directories; existing guest documents are preserved. Writer drafts are saved in the current browser by account and workspace, not synchronized between devices. Research history stores completed answers; it is not conversational memory automatically passed to the next question.
+1. Sign in or use the shared guest workspace.
+2. Select or create a workspace.
+3. Upload research papers in the **Paper library**.
+4. Select a paper or search across all workspace papers.
+5. Enter a question or choose a shortcut: summarize, methodology, compare papers, find limitations, or suggest a project.
+6. Review the answer, retrieved passages, and source pages.
+7. Export the research, create a diagram, or open the answer in the project writer.
 
-Model generation requires configured hosted credentials. Paper discovery requires access to `export.arxiv.org`; Markdown and live diagram previews load pinned libraries from `cdn.jsdelivr.net`. The interface stays usable when those preview libraries cannot load. This upgrade does not require downloading a text/image generation model.
+Paper discovery is a separate search step. Follow the arXiv link, download an available PDF, and upload it to your workspace for document-grounded research.
 
-### Setup
+## Multi-agent architecture
+
+| Component | Responsibility |
+| --- | --- |
+| Supervisor | Classifies the question and selects retrieval depth and revision limits |
+| Research Agent | Retrieves relevant document passages with source and page metadata |
+| Analysis Agent | Interprets the supplied evidence |
+| Critic Agent | Reviews the analysis for relevance, support, and unsupported claims |
+| Revision stage | Revises the analysis using critic feedback within a bounded loop |
+| Synthesis Agent | Produces the final answer with source references |
+| Diagram Agent | Generates and refines structured Mermaid diagrams |
+
+The research workflow follows:
+
+```mermaid
+flowchart TD
+    A["Research question"] --> B["Plan and retrieve evidence"]
+    B --> C["Analyze evidence"]
+    C --> D{"Critic review"}
+    D -->|"Revise within limit"| E["Revise analysis"]
+    E --> D
+    D -->|"Finish review or reach limit"| F["Synthesize answer and sources"]
+```
+
+The critic is an automated review step. A `PASS` result is not a guarantee of factual correctness.
+
+## Document ingestion and retrieval
+
+- **PDF processing:** PyMuPDF extracts page text and available table text.
+- **Chunking:** Documents are split into overlapping passages with source/page metadata.
+- **Storage:** ChromaDB persists document chunks and embeddings.
+- **Duplicate checks:** Filename checks, file hashes, normalized-text hashes, and a semantic similarity heuristic help identify repeated documents.
+- **Retrieval:** Semantic candidates are reranked using keyword scoring and reciprocal-rank fusion.
+- **Multiple papers:** Retrieval searches across documents in the active workspace.
+- **Planning:** Comparison and research-gap questions use a larger evidence budget and an additional permitted revision round.
+
+Semantic duplicate checks are heuristic and may need tuning for a particular collection.
+
+## Project writer
+
+The writer supports these editable sections:
+
+- Abstract
+- Introduction
+- Literature review
+- Methodology
+- Results and discussion
+- Conclusion
+- References
+
+Generate a section from workspace evidence, provide section-specific instructions, and edit the result before exporting. Reported findings and proposed project ideas should remain clearly separated. Missing experiments or measured results must be supplied by the author.
+
+Drafts autosave **in the current browser**, separated by account and workspace. They are not synchronized between devices.
+
+## Diagrams and exports
+
+Describe your system or methodology, optionally select a paper for evidence, and generate a diagram. Saved diagrams retain their source, assumptions, references, and version history.
+
+| Deliverable | Supported formats |
+| --- | --- |
+| Research report | TXT, MD, JSON, PDF, DOCX, LaTeX, ZIP |
+| Project writer document | PDF, DOCX, LaTeX, Markdown |
+| Diagram source | Mermaid (`.mmd`) |
+| Browser diagram image | SVG from a valid preview |
+| Server-rendered diagram | SVG, PNG, PDF through Mermaid CLI |
+
+PDF reports wrap and paginate text. LaTeX exports escape special characters. Research ZIP exports include the LaTeX report, text report, and selected diagram sources/SVG assets.
+
+To attach saved diagrams to a research report through the API:
+
+```text
+/api/reports/{chat_id}?format=pdf&diagram_ids=1&diagram_ids=2
+```
+
+Server-rendered diagram exports and report exports with rendered diagrams require the optional Mermaid CLI installation. Mermaid validation rejects unsafe directives and interactive actions before saving.
+
+## Technology stack
+
+| Layer | Technology |
+| --- | --- |
+| Backend | Python, FastAPI, Uvicorn |
+| Primary frontend | HTML, CSS, JavaScript |
+| Companion frontend | Streamlit |
+| Language-model access | Groq / OpenAI-compatible client |
+| Retrieval storage | ChromaDB |
+| PDF processing | PyMuPDF |
+| Accounts and saved research | SQLite |
+| Diagram preview and rendering | Mermaid, Mermaid CLI |
+| Word exports | python-docx |
+| Browser Markdown | Marked and DOMPurify |
+| Tests | pytest, FastAPI TestClient, jsdom |
+
+The research workflow is implemented in the custom agent modules under `src/agents/`.
+
+## Installation
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Arjun1443/Agentic-RAG-Research-Assistant.git
+cd Agentic-RAG-Research-Assistant
+```
+
+### 2. Create a Python environment
+
+Python 3.10 or later is needed for the source syntax. The automated checks for the workspace upgrade ran on Python 3.12.
+
+Windows Command Prompt:
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install Python dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and set your real research API key. The default diagram configuration reuses that research provider; an independently hosted OpenAI-compatible diagram provider can be configured instead. Provider availability and quotas apply.
+### 3. Configure the model
 
-For server-side diagram image exports, install Node.js and run:
+Copy `.env.example` to `.env` in the repository root and enter your real credentials:
+
+```env
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=openai/gpt-oss-20b
+DIAGRAM_MODEL_PROVIDER=existing
+```
+
+`GROQ_MODEL` is the configured research model name. Use a model available to your provider account. The default diagram configuration reuses the research provider; `DIAGRAM_MODEL` can select another model on that provider.
+
+For an alternative hosted OpenAI-compatible diagram endpoint, configure `DIAGRAM_MODEL_PROVIDER`, `DIAGRAM_MODEL`, `HF_BASE_URL`, and `HF_TOKEN` as shown in `.env.example`. Provider availability, pricing, and quotas apply.
+
+The hosted language-model workflow does not require downloading language-model weights. ChromaDB's embedding component may download an embedding model on first use.
+
+Keep real API keys in `.env` and do not commit them.
+
+### 4. Optional: enable server diagram image exports
+
+Install Node.js, then run:
 
 ```bash
 npm ci
 ```
 
-This installs Mermaid CLI and its Chromium renderer. It is optional for research, writing, browser previews, Mermaid-source downloads and browser SVG downloads. For a custom Chromium configuration, set `MERMAID_PUPPETEER_CONFIG` to a Puppeteer JSON configuration path. Set `MERMAID_CLI` if the executable is not in `PATH` or `node_modules/.bin`.
+This installs Mermaid CLI and its Chromium renderer. It does not install an image-generation model.
+
+Optional environment settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `MERMAID_CLI` | Path to the Mermaid CLI executable if automatic detection is unavailable |
+| `MERMAID_PUPPETEER_CONFIG` | Path to a Puppeteer JSON configuration file for the rendering environment |
+
+This installation is optional for research, project writing, Mermaid-source downloads, and browser previews/SVG downloads.
+
+### 5. Run the primary application
 
 ```bash
 python -m uvicorn fastapi_app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`. Select a workspace, upload papers, then research, diagram or draft sections. Always inspect supporting passages; an automated critic PASS is not a correctness guarantee. Stop waiting disconnects the client; it cannot interrupt a provider call already in progress.
+- Application: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- Interactive API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Health endpoint: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-### Validation
+To run the companion Streamlit interface:
+
+```bash
+streamlit run app.py
+```
+
+The Streamlit interface retains its earlier workflow and does not expose every feature of the primary browser application.
+
+## API reference
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Service health |
+| GET / POST | `/api/documents` | List papers / upload a PDF |
+| GET | `/api/documents/{source}/preview` | Read a stored PDF |
+| DELETE | `/api/documents/{source}` | Remove a paper and its indexed chunks |
+| POST | `/api/research` | Run research and save the completed result |
+| GET | `/api/research/stream` | Receive research workflow events |
+| POST | `/api/auth/register` | Create an account |
+| POST | `/api/auth/login` | Sign in |
+| POST | `/api/auth/logout` | Invalidate the current session |
+| GET / POST | `/api/workspaces` | List / create workspaces |
+| GET | `/api/history` | Read completed research in the selected workspace |
+| GET | `/api/discover` | Search arXiv metadata |
+| GET / POST | `/api/workspaces/{workspace_id}/diagrams` | List / generate diagrams |
+| GET | `/api/diagrams/{diagram_id}/versions` | List saved diagram versions |
+| PUT | `/api/diagrams/{diagram_id}/source` | Save edited source |
+| PATCH | `/api/diagrams/{diagram_id}` | Rename a diagram |
+| POST | `/api/diagrams/{diagram_id}/refine` | Refine using an instruction |
+| POST | `/api/diagrams/{diagram_id}/restore/{version}` | Restore an earlier version |
+| GET | `/api/diagrams/{diagram_id}/download` | Export a diagram |
+| GET | `/api/reports/{chat_id}` | Export saved research |
+| POST | `/api/writing/draft` | Draft one project section |
+| POST | `/api/writing/export` | Export edited project text |
+| POST | `/api/evaluate` | Return basic answer/retrieval diagnostics |
+
+Authenticated requests use `Authorization: Bearer <token>`. Workspace-scoped requests use `X-Workspace-Id: <id>`; the default workspace is `0`. See `/docs` for request schemas and query options.
+
+Example research request body:
+
+```json
+{
+  "question": "Compare the methods and limitations reported in these papers.",
+  "source": null,
+  "workspace_id": 0,
+  "mode": "technical"
+}
+```
+
+## Repository guide
+
+| Path | Contents |
+| --- | --- |
+| `fastapi_app/main.py` | API routes, research streaming, uploads, and report endpoints |
+| `fastapi_app/storage.py` | SQLite accounts, sessions, workspaces, history, and diagram versions |
+| `fastapi_app/discovery.py` | arXiv metadata search |
+| `fastapi_app/exports.py` | PDF, Word, text, and LaTeX document exports |
+| `fastapi_app/diagram_render.py` | Mermaid CLI rendering |
+| `fastapi_app/static/` | Browser interface, styles, and interactions |
+| `src/agents/` | Supervisor, research, analysis, critic, synthesis, and diagram agents |
+| `src/ingestion/` | PDF loading, identity checks, chunking, and indexing |
+| `src/retriever.py` | Retrieval, reranking, statistics, and document removal |
+| `src/request_scope.py` | Per-account/workspace data paths |
+| `tests/` | Python regression tests and JavaScript interface smoke checks |
+| `app.py` | Companion Streamlit application |
+| `.env.example` | Configuration template |
+
+## Storage and account behavior
+
+- Guest mode uses a shared local/demo workspace. Sign in before uploading private documents to a shared deployment.
+- SQLite stores accounts, sessions, saved research, workspaces, and diagram versions.
+- Uploaded PDFs and vector indexes are separated by account and workspace.
+- Existing guest data remains under `data/`; other workspace data lives under `data/workspaces/{user_id}/{workspace_id}/`.
+- Passwords use PBKDF2. Earlier SHA-256 password records are upgraded after a successful login.
+- Completed research history is persistent, but previous questions are not automatically supplied as conversational context.
+- Project-writing drafts remain in browser storage. Export them to keep a portable copy.
+
+## Testing
+
+Install the test dependencies:
 
 ```bash
 python -m pip install pytest httpx
+npm ci
+```
+
+Run the checks:
+
+```bash
 pytest -q
 npm test
 ```
 
-Diagram export tests require the optional Mermaid installation and a working Chromium environment. API tests use mocked model results and temporary databases; live provider quality/quotas must be checked with your configured account. The original Streamlit app remains available, with its older interface.
-
-## FastAPI application
-
-From the repository root:
-
-```bash
-python -m pip install -r requirements.txt
-python -m uvicorn fastapi_app.main:app --env-file .env --host 127.0.0.1 --port 8000
-```
-
-Open `http://127.0.0.1:8000/` for the browser client or
-`http://127.0.0.1:8000/docs` for the interactive API documentation.
-
-FastAPI endpoints:
-
-- `GET /health` — service health
-- `GET /api/documents` — indexed PDFs and statistics
-- `POST /api/documents` — upload and index a PDF
-- `DELETE /api/documents/{source}` — remove a PDF and its ChromaDB chunks
-- `POST /api/research` — run the complete research workflow
-- `GET /api/research/stream` — stream workflow events over Server-Sent Events
-- `POST /api/auth/register` and `/api/auth/login` — local user accounts
-- `GET/POST /api/workspaces` — research workspace management
-- `GET /api/history` — persisted chat history
-- `GET /api/reports/{chat_id}?format=txt|md|json|pdf` — rich report exports
-- `GET /api/workspaces/{workspace_id}/diagrams` — workspace diagrams and versions
-- `POST /api/workspaces/{workspace_id}/diagrams` — generate a Mermaid diagram
-- `POST /api/diagrams/{diagram_id}/refine` — conversationally refine a diagram
-- `GET /api/diagrams/{diagram_id}/download?format=mmd|svg|png|pdf` — safe diagram exports
-- `POST /api/evaluate` — automated answer/retrieval evaluation metrics
-
-Example research request:
-
-```json
-{
-  "question": "What is the main contribution of the Transformer architecture?",
-  "source": null
-}
-```
-
-The research endpoint runs the existing supervisor, retrieval, analysis,
-critic, revision, and synthesis stages in a worker thread so synchronous model
-calls do not block the FastAPI event loop.
-
-## Current RAG capabilities
-
-- SHA-256 document hashing and normalized text hashing
-- Semantic duplicate detection against the vector collection
-- PyMuPDF table extraction with table text preserved in page chunks
-- Hybrid retrieval: Chroma semantic retrieval plus lexical keyword scoring
-- Reciprocal-rank fusion reranking
-- Adaptive planning: comparison/gap questions retrieve more evidence and allow
-  an additional revision round
-- SQLite-backed users, sessions, workspaces, and chat history
-- SSE progress events for long research jobs
-- Plain-text, Markdown-compatible, JSON, and PDF report downloads
-- Evaluation metrics for citation coverage, retrieval count, source diversity,
-  critic pass status, and answer length
-
-## AI Diagram Generator
-
-Each workspace has a Diagram Generator for flowcharts, system architecture,
-sequence diagrams, and entity-relationship diagrams. Describe a methodology or
-system, optionally provide a selected paper passage, and the Diagram Agent
-returns a structured title, Mermaid source, assumptions, and source references.
-The browser client supports regeneration, Mermaid editing, conversational
-refinement, renaming, version restore, and Mermaid/SVG/PNG/PDF downloads.
-
-Mermaid is validated before it is displayed or exported. Directives, links,
-click actions, raw HTML, scripts, and model-supplied configuration are rejected.
-Uploaded-paper passages are treated as untrusted evidence and cannot become
-application instructions. Diagram records and version history are stored in the
-workspace SQLite database and use the same workspace ownership checks as other
-workspace data.
-
-Configure the diagram model with `DIAGRAM_MODEL_PROVIDER`, `DIAGRAM_MODEL`, and
-the local/Hugging Face-compatible `HF_BASE_URL`/`HF_TOKEN` variables.
-The default image provider is local Diffusers with
-`Qwen/Qwen3-Coder-30B-A3B-Instruct` through a Hugging Face-compatible endpoint.
-Qwen generates Mermaid source; the application renders that source into
-sanitized SVG/PNG/PDF diagram assets without downloading a local image model.
-Hosted Hugging Face inference may incur provider charges. Copy `.env.example` to
-`.env` before generating diagrams.
-
-Attach saved diagrams to report exports with
-`/api/reports/{chat_id}?format=pdf&diagram_ids=1&diagram_ids=2`. Use `format=docx`
-for Word, `format=tex` for LaTeX, or `format=zip` for a LaTeX project archive
-containing Mermaid and SVG assets. The controlled renderer creates sanitized
-SVG/PNG/PDF assets without executing model-generated code.
-
-### ChromaDB recovery
-
-The persistent ChromaDB directory is local runtime state and is ignored by git.
-If ChromaDB reports a Rust SQLite panic while opening an existing database,
-stop the server, move `data\chroma_db` to a backup directory, and restart or
-re-index the PDFs from `data\documents`. The application uses an absolute
-repository path for ChromaDB, so the server can be launched from the repository
-root without changing the storage location.
-
----
-
-## 📌 Project Overview
-
-Traditional RAG systems generally follow a simple pipeline:
-
-```text
-User Question
-     ↓
-Retrieve Documents
-     ↓
-Generate Answer
-```
-
-This project extends the traditional RAG approach into a multi-agent workflow:
-
-```text
-User Question
-      ↓
-Supervisor Agent
-      ↓
-Research Agent
-      ↓
-Analysis Agent
-      ↓
-Critic Agent
-      ↓
-Revision Loop
-      ↓
-Synthesis Agent
-      ↓
-Final Answer + Sources
-```
-
-The goal is to improve research question answering by separating retrieval, analysis, verification, revision, and synthesis into specialized stages.
-
----
-
-## 🎯 Problem Statement
-
-Students and researchers often need to search technical papers, identify relevant evidence, compare concepts, verify claims, and summarize research findings.
-
-A basic search or RAG system may retrieve useful passages but can still produce incomplete answers, unsupported claims, weak comparisons, and poorly grounded summaries.
-
-This project addresses these challenges using a multi-agent RAG pipeline where retrieved evidence is analyzed, critically verified, revised when necessary, and finally synthesized into a research answer.
-
----
-
-## 🎯 Objectives
-
-The main objectives of the project are:
-
-1. Build a research assistant using Retrieval-Augmented Generation.
-2. Allow users to upload research papers in PDF format.
-3. Extract and split research documents into searchable chunks.
-4. Store document chunks in ChromaDB.
-5. Retrieve relevant evidence using semantic search.
-6. Use specialized agents for research, analysis, criticism, revision, and synthesis.
-7. Support single-document and multi-document research.
-8. Provide source and page references.
-9. Detect duplicate document uploads.
-10. Allow users to remove indexed documents.
-11. Generate downloadable research reports.
-12. Provide an easy-to-use Streamlit interface.
-
----
-
-# 🧠 System Architecture
-
-The system consists of a document ingestion pipeline, ChromaDB retrieval layer, and multi-agent reasoning workflow.
-
-## High-Level Architecture
-
-```text
-                    ┌────────────────────┐
-                    │       User         │
-                    │  Research Question │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │   Streamlit UI     │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │  Supervisor Agent  │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │   Research Agent   │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │   Analysis Agent   │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │    Critic Agent    │
-                    └─────────┬──────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │                   │
-                   PASS          NEEDS_REVISION
-                    │                   │
-                    │                   ▼
-                    │            ┌──────────────┐
-                    │            │   Revision   │
-                    │            └──────┬───────┘
-                    │                   │
-                    │                   ▼
-                    │            ┌──────────────┐
-                    │            │ Critic Again │
-                    │            └──────┬───────┘
-                    │                   │
-                    └──────────┬────────┘
-                               ▼
-                    ┌────────────────────┐
-                    │  Synthesis Agent   │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-               ┌─────────────────────────────┐
-               │ Final Answer + Sources      │
-               │ + Downloadable Report       │
-               └─────────────────────────────┘
-```
-
----
-
-# 📚 RAG Pipeline
-
-## 1. PDF Upload
-
-Users can upload research papers through the Streamlit interface.
-
-```text
-PDF
- ↓
-PDF Loader
- ↓
-Text Extraction
- ↓
-Text Chunking
- ↓
-ChromaDB
-```
-
-Uploaded papers are stored locally and their chunks are added to the persistent ChromaDB collection.
-
----
-
-## 2. PDF Text Extraction
-
-PDF content is extracted using **PyMuPDF**.
-
-The extracted information is organized by page so that source and page metadata can be preserved throughout the retrieval pipeline.
-
----
-
-## 3. Text Chunking
-
-Research paper text is divided into smaller overlapping chunks.
-
-Each chunk is stored with metadata such as:
-
-```text
-source
-page
-```
-
-This allows the final answer to reference the relevant source document and page.
-
----
-
-# 🗄️ ChromaDB
-
-The project uses **ChromaDB** as the persistent vector/document database.
-
-Each indexed chunk contains:
-
-```text
-Document Text
-Source Filename
-Page Number
-```
-
-Example:
-
-```text
-Source: transformer_paper.pdf
-Page: 2
-Text: ...
-```
-
-The database allows semantic retrieval of relevant research evidence.
-
----
-
-# 🔎 Retrieval
-
-The retrieval layer supports two search modes.
-
-## Single-Document Search
-
-The user can select a particular research paper:
-
-```text
-Search Scope
-→ transformer_paper.pdf
-```
-
-The retriever then searches only that selected document.
-
----
-
-## All-Document Search
-
-The user can choose:
-
-```text
-Search Scope
-→ All Documents
-```
-
-The system searches across the indexed research papers.
-
-For multi-document questions, the retrieval layer distributes retrieval across documents so that one document does not completely dominate the retrieved evidence.
-
-This improves cross-paper comparison tasks.
-
----
-
-# 🤖 Multi-Agent System
-
-The project uses several specialized agents.
-
-## 1. Supervisor Agent
-
-The Supervisor coordinates the research workflow.
-
-It identifies the likely intent of the user's question, such as:
-
-```text
-comparison
-summarization
-research_gaps
-idea_generation
-research_question
-```
-
-It then coordinates:
-
-```text
-Research
-→ Analysis
-→ Critic
-→ Revision when required
-→ Synthesis
-```
-
----
-
-## 2. Research Agent
-
-The Research Agent retrieves relevant evidence from ChromaDB.
-
-Responsibilities include:
-
-* semantic retrieval
-* document-specific retrieval
-* multi-document retrieval
-* preservation of source and page metadata
-
----
-
-## 3. Analysis Agent
-
-The Analysis Agent interprets the retrieved research evidence.
-
-Responsibilities include:
-
-* identifying important findings
-* explaining relevant evidence
-* comparing concepts when required
-* maintaining source grounding
-* avoiding unsupported claims
-
-The analysis is restricted to the supplied research evidence.
-
----
-
-## 4. Critic Agent
-
-The Critic Agent evaluates the generated analysis.
-
-It checks:
-
-* factual support
-* relevance
-* source grounding
-* unsupported claims
-* hallucination risks
-* missing important information
-
-The critic can return:
-
-```text
-PASS
-```
-
-or:
-
-```text
-NEEDS_REVISION
-```
-
----
-
-## 5. Revision Loop
-
-When the critic returns:
-
-```text
-NEEDS_REVISION
-```
-
-the system sends the analysis back through a revision stage using the critic's feedback.
-
-The workflow becomes:
-
-```text
-Analysis
-   ↓
-Critic
-   ↓
-NEEDS_REVISION
-   ↓
-Revision
-   ↓
-Critic Again
-```
-
-The current implementation limits the number of revision rounds to control token consumption.
-
----
-
-## 6. Synthesis Agent
-
-The Synthesis Agent generates the final answer using:
-
-```text
-Research Evidence
-+
-Analysis
-+
-Critic Feedback
-```
-
-The final answer is designed to be:
-
-* clear
-* concise
-* evidence-grounded
-* student-friendly
-* source-aware
-
----
-
-# 📄 Document Management
-
-The application supports research-paper management.
-
-## Uploading Papers
-
-Users can upload PDF files through:
-
-```text
-📤 Upload Research Paper
-```
-
----
-
-## Duplicate Detection
-
-Before indexing a document, the system checks whether a document with the same filename is already stored.
-
-If it already exists, the system displays a warning and does not index it again.
-
----
-
-## Indexed Documents
-
-The sidebar displays indexed documents with basic statistics.
-
-Example:
-
-```text
-📄 transformer_paper.pdf
-Pages: 15
-Chunks: 52
-```
-
----
-
-## Removing Documents
-
-Users can remove an indexed document using the document management interface.
-
-The system removes:
-
-* indexed chunks from ChromaDB
-* the corresponding uploaded PDF when available locally
-
-A confirmation step is provided before deletion.
-
----
-
-# 🎯 Search Scope
-
-The application provides a search-scope selector.
-
-Example:
-
-```text
-Search within:
-→ All Documents
-```
-
-or:
-
-```text
-Search within:
-→ transformer_paper.pdf
-```
-
-This allows users to control whether the question is answered from one research paper or across the full indexed collection.
-
----
-
-# 📚 Source Grounding
-
-The final interface displays source names and page numbers associated with the retrieved research evidence.
-
-Example:
-
-```text
-📄 transformer_paper.pdf — Page 2
-📄 N19-1423.pdf — Page 3
-```
-
-This improves traceability and allows users to identify where the evidence came from.
-
----
-
-# 📥 Research Report Download
-
-After research is completed, users can download a text-based research report.
-
-The report can contain:
-
-```text
-Research Question
-Search Scope
-Supervisor Plan
-Final Answer
-Critic Status
-Revision Rounds
-Sources
-```
-
-The downloaded file is:
-
-```text
-agentic_rag_research_report.txt
-```
-
----
-
-# 🖥️ Streamlit Interface
-
-The user interface is built using **Streamlit**.
-
-The interface provides:
-
-* PDF upload
-* indexed document management
-* search scope selection
-* research question input
-* example questions
-* multi-agent workflow visualization
-* final answer display
-* critic verification
-* research analysis
-* source references
-* report download
-
----
-
-# 🧭 Supervisor Workflow Display
-
-The UI shows the current agent sequence:
-
-```text
-🧭 Supervisor
-↓
-🔎 Research Agent
-↓
-🧠 Analysis Agent
-↓
-🔍 Critic Agent
-↓
-🔄 Revision
-↓
-✍️ Synthesis Agent
-```
-
-This makes the multi-agent process visible to the user.
-
----
-
-# 🛠️ Technologies Used
-
-## Programming Language
-
-* Python
-
-## Frontend
-
-* Streamlit
-
-## PDF Processing
-
-* PyMuPDF
-
-## Vector Database
-
-* ChromaDB
-
-## LLM API
-
-* Groq using an OpenAI-compatible client
-* Default model: `openai/gpt-oss-20b`
-
-Set `GROQ_MODEL` in `.env` to another model returned by the Groq model-list
-endpoint. Model availability can change as providers deprecate models; the
-previous `llama-3.1-8b-instant` default is no longer available for this
-project.
-
-## Environment Configuration
-
-* python-dotenv
-
-## Additional Python Packages
-
-* LangChain
-* LangChain Community
-* LangChain OpenAI
-* LangGraph
-* OpenAI
-* tiktoken
-
-The current production workflow is centered around the custom multi-agent implementation under `src/agents/`.
-
----
-
-# 📁 Project Structure
-
-The cleaned project structure is:
-
-```text
-Agentic-RAG-Research-Assistant/
-│
-├── .env
-├── README.md
-├── app.py
-├── requirements.txt
-│
-├── data/
-│   └── documents/
-│       ├── research_paper_1.pdf
-│       ├── research_paper_2.pdf
-│       └── ...
-│
-└── src/
-    │
-    ├── retriever.py
-    │
-    ├── agents/
-    │   ├── __init__.py
-    │   ├── supervisor.py
-    │   ├── research_agent.py
-    │   ├── analysis_agent.py
-    │   ├── critic_agent.py
-    │   └── synthesis_agent.py
-    │
-    └── ingestion/
-        ├── pdf_loader.py
-        ├── text_splitter.py
-        └── vector_store.py
-```
-
----
-
-# ⚙️ Installation
-
-## 1. Create or activate the virtual environment
-
-### Windows
-
-```powershell
-python -m venv venv
-venv\Scripts\activate
-```
-
----
-
-## 2. Install dependencies
-
-```powershell
-pip install -r requirements.txt
-```
-
----
-
-# 🔑 Environment Variables
-
-Create a `.env` file in the project root.
-
-Example:
-
-```env
-GROQ_API_KEY=your_groq_api_key
-```
-
-The application uses `python-dotenv` to load the API key.
-
-Do not upload your `.env` file to GitHub.
-
-Add these entries to `.gitignore`:
-
-```text
-.env
-venv/
-__pycache__/
-data/chroma_db/
-```
-
----
-
-# ▶️ Running the Application
-
-From the project root, run:
-
-```powershell
-streamlit run app.py
-```
-
-Then open the Streamlit URL shown in the terminal.
-
-Usually:
-
-```text
-http://localhost:8501
-```
-
----
-
-# 🧪 Command-Line Testing
-
-You can also test the Supervisor directly:
-
-```powershell
-python -m src.agents.supervisor
-```
-
-Test the Research Agent:
-
-```powershell
-python -m src.agents.research_agent
-```
-
-Test the Retriever:
-
-```powershell
-python -m src.retriever
-```
-
----
-
-# 💡 Example Research Questions
-
-The system supports different types of research questions.
-
-## Comparison
-
-```text
-What are the advantages of the Transformer compared
-with recurrent neural networks?
-```
-
-## Methodology
-
-```text
-What datasets, baseline models, evaluation metrics,
-and experimental settings were used to evaluate the model?
-```
-
-## Main Contribution
-
-```text
-What is the main contribution of the research paper?
-```
-
-## Research Gaps
-
-```text
-What limitations of the architecture suggest directions
-for future research?
-```
-
-## Cross-Paper Comparison
-
-```text
-What are the main differences between BERT and the
-Transformer architecture, particularly in their training
-objectives, architecture, and evaluation tasks?
-```
-
----
-
-# ✅ Key Features
-
-The current implementation supports:
-
-* PDF upload
-* PDF text extraction
-* Text chunking
-* Persistent ChromaDB storage
-* Semantic retrieval
-* Single-document search
-* Multi-document search
-* Document-specific retrieval
-* Duplicate detection
-* Document removal
-* Supervisor planning
-* Multi-agent research
-* Evidence analysis
-* Critic verification
-* Revision loop
-* Final synthesis
-* Source and page references
-* Downloadable research reports
-* Streamlit user interface
-* Groq rate-limit-aware behavior
-* Reduced intermediate token usage
-
----
-
-# 🔍 Example Workflow
-
-A typical user workflow is:
-
-```text
-1. Upload Research Paper
-          ↓
-2. Add Paper to Knowledge Base
-          ↓
-3. Select Search Scope
-          ↓
-4. Enter Research Question
-          ↓
-5. Supervisor Plans Workflow
-          ↓
-6. Research Agent Retrieves Evidence
-          ↓
-7. Analysis Agent Interprets Evidence
-          ↓
-8. Critic Agent Verifies Analysis
-          ↓
-9. Revision if Required
-          ↓
-10. Synthesis Agent Generates Final Answer
-          ↓
-11. Sources Are Displayed
-          ↓
-12. Research Report Can Be Downloaded
-```
-
----
-
-# 🧠 Why Agentic RAG?
-
-A traditional RAG system usually follows:
-
-```text
-Question
-   ↓
-Retriever
-   ↓
-LLM
-   ↓
-Answer
-```
-
-This project adds specialized reasoning stages:
-
-```text
-Question
-   ↓
-Supervisor
-   ↓
-Research
-   ↓
-Analysis
-   ↓
-Critic
-   ↓
-Revision
-   ↓
-Synthesis
-   ↓
-Answer
-```
-
-The multi-agent design separates retrieval, reasoning, verification, correction, and final response generation.
-
----
-
-# ⚠️ Current Limitations
-
-The current implementation has several limitations.
-
-## Model and API Limits
-
-The system depends on a hosted language model, so token and rate limits can affect execution.
-
-The application includes basic handling for rate-limit errors, but service quotas still apply.
-
-## Retrieval Quality
-
-Answer quality depends on:
-
-* chunk size
-* chunk overlap
-* query wording
-* document quality
-* the number of retrieved chunks
-
-Cross-document questions may still require retrieval tuning.
-
-## Duplicate Content
-
-The current duplicate detection primarily checks whether the same document filename is already indexed.
-
-Two differently named files containing the same paper may still be stored separately.
-
-## PDF Extraction
-
-Complex PDFs may contain:
-
-* tables
-* equations
-* multi-column layouts
-* images
-* footnotes
-
-Text extraction quality may vary depending on document structure.
-
-## Revision Rounds
-
-The revision loop is intentionally limited to control token usage.
-
-A future version could support adaptive revision depth.
-
----
-
-# 🚀 Future Enhancements
-
-Possible future improvements include:
-
-* semantic duplicate detection
-* document hashing
-* improved table extraction
-* hybrid keyword and semantic retrieval
-* retrieval reranking
-* richer report formats
-* PDF report generation
-* chat history
-* user accounts
-* research workspaces
-* streaming responses
-* adaptive agent planning
-* automated evaluation metrics
-
----
-
-# 🎓 Academic Value
-
-This project demonstrates practical integration of:
-
-* Retrieval-Augmented Generation
-* Vector databases
-* Semantic search
-* Large language models
-* Multi-agent systems
-* Evidence grounding
-* Critic-based verification
-* Iterative revision
-* Document management
-* Research question answering
-
-It provides a practical example of how agentic systems can assist students and researchers in exploring technical literature.
-
----
-
-# 🧪 Recommended Demonstration
-
-## Demo 1 — Single Paper
-
-Upload:
-
-```text
-transformer_paper.pdf
-```
-
-Ask:
-
-```text
-What are the advantages of the Transformer compared
-with recurrent neural networks?
-```
-
----
-
-## Demo 2 — Methodology
-
-Ask:
-
-```text
-What datasets, baseline models, evaluation metrics,
-and experimental settings were used to evaluate the Transformer?
-```
-
----
-
-## Demo 3 — Critic and Revision
-
-Use a comparison question and demonstrate:
-
-```text
-Analysis
-   ↓
-Critic
-   ↓
-NEEDS_REVISION
-   ↓
-Revision
-   ↓
-Critic
-   ↓
-Synthesis
-```
-
----
-
-## Demo 4 — Multi-Document Search
-
-Upload a second research paper.
-
-Select:
-
-```text
-All Documents
-```
-
-Ask a cross-paper comparison question and verify that the final sources reference multiple papers.
-
----
-
-# 🏁 Project Status
-
-The current implementation provides a working end-to-end Agentic RAG research assistant with:
-
-```text
-PDF Ingestion              ✅
-ChromaDB                   ✅
-Semantic Retrieval         ✅
-Multi-Document Retrieval   ✅
-Document Management        ✅
-Supervisor Agent           ✅
-Research Agent             ✅
-Analysis Agent             ✅
-Critic Agent               ✅
-Revision Loop              ✅
-Synthesis Agent            ✅
-Streamlit UI               ✅
-Source References          ✅
-Downloadable Reports       ✅
-```
-
----
-
-# 👨‍💻 Project
-
-## Agentic RAG Research Assistant
-
-Built using:
-
-```text
-Python
-Streamlit
-ChromaDB
-PyMuPDF
-Groq
-OpenAI-Compatible API
-Multi-Agent Architecture
-```
-
----
-
-# 📄 License
-
-Add the license appropriate for your project before publishing.
-
-For example:
-
-```text
-MIT License
-```
-
-if you choose to distribute the project under the MIT License.
+The workspace upgrade was checked with **14 passing Python tests** and JavaScript interface smoke checks. Coverage includes ownership checks, workspace paths, sign-out, complete document exports, upload failures, research streaming, discovery parsing, diagram versions, and rendering.
+
+Diagram rendering tests require a working Chromium environment. Model-backed API tests use controlled results; they do not establish live model quality or provider availability. Live arXiv search could not be verified from the development environment.
+
+## Current limitations
+
+- Each uploaded PDF is limited to **25 MB**.
+- Scanned PDFs without readable text need OCR before upload.
+- Complex layouts, equations, tables, and figures may not extract cleanly.
+- Answers depend on retrieved evidence and model output; inspect supporting passages.
+- Evaluation values are basic diagnostics, not calibrated confidence or comprehensive quality scores.
+- Research streaming sends **workflow events**, not token-by-token answer text.
+- **Stop waiting** disconnects the browser; it cannot interrupt a provider call already running.
+- arXiv discovery depends on external availability and does not automatically import PDFs.
+- Browser Markdown and diagram previews load pinned libraries from `cdn.jsdelivr.net`. Preview functionality may be reduced when that service is unavailable.
+- Hosted model quotas, rate limits, and credentials affect research and diagram generation.
+- Image generation and image editing are not implemented yet.
+
+## Future scope
+
+The following are planned enhancements, not current capabilities.
+
+### AI image generation and editing
+
+- Generate conceptual illustrations and project visuals from text descriptions.
+- Explore hosted open-source text-to-image models without requiring users to download large model weights or own a GPU.
+- Check provider availability, access requirements, quotas, and pricing before integrating a model.
+- Support iterative instructions for editing a selected part of an image while preserving other regions.
+- Add image previews, saved versions, and download controls.
+- Allow users to include generated visuals in project documents and research reports.
+- Keep precise flowcharts and architecture diagrams editable through structured diagram tools.
+
+### Further research improvements
+
+- OCR and stronger extraction of equations, tables, and figures.
+- Additional paper-discovery sources and controlled open-access PDF import.
+- Conversational follow-up questions with explicit context selection.
+- Shared workspaces, annotations, and collaboration.
+- Cross-device draft synchronization and richer document editing.
+- Background research jobs with resumable progress and cancellation controls.
+- Token-level answer streaming, caching, and usage visibility.
+- Broader retrieval and citation-quality evaluations.
+- Academic citation styles, bibliography management, and publication templates.
+
+## License
+
+No license is declared in this README. Check the repository for a license file before reusing or distributing the code.
