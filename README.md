@@ -368,3 +368,7 @@ The following are planned enhancements, not current capabilities.
 ## License
 
 No license is declared in this README. Check the repository for a license file before reusing or distributing the code.
+
+### Natural AI Project Writer
+
+Enter your project topic, choose a section, select Natural and engaging, Readable academic, or Simple and beginner-friendly, and click Generate natural draft. Choose a short (~250 words), standard (~500 words), or detailed (~900 words) draft. PDFs are optional: enable paper evidence to ground the draft in available uploaded sources. Topic-only drafts need verified references and your actual project details before use. Drafts remain editable and autosave in your browser, with PDF, Word, LaTeX and Markdown exports. Existing section content requires confirmation before replacement. Generated results and references must not be treated as completed experiments.
