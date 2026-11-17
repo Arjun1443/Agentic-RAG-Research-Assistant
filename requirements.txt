@@ -1,0 +1,15 @@
+streamlit
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+pymupdf
+chromadb
+langchain
+langchain-community
+langchain-openai
+langgraph
+openai
+tiktoken
+pillow
+python-docx

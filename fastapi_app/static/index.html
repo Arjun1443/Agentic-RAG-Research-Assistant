@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentic RAG Research Assistant</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+    main { max-width: 1100px; margin: auto; padding: 32px 20px; }
+    header, section { background: white; border: 1px solid #dfe5ef; border-radius: 14px; padding: 24px; margin-bottom: 18px; }
+    header { background: #172554; color: white; }
+    h1 { margin: 0 0 8px; } h2 { margin-top: 0; }
+    label { display: block; font-weight: 650; margin: 12px 0 6px; }
+    textarea, select, input[type=file] { width: 100%; padding: 10px; border: 1px solid #b8c2d3; border-radius: 8px; font: inherit; }
+    button { border: 0; border-radius: 8px; padding: 11px 16px; margin-top: 14px; background: #4f46e5; color: white; font-weight: 650; cursor: pointer; }
+    button.danger { background: #b42318; } button:disabled { opacity: .6; cursor: wait; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .card { border: 1px solid #dfe5ef; border-radius: 10px; padding: 14px; margin-top: 10px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; } .muted { color: #5d6b82; }
+    #status { min-height: 24px; margin-top: 12px; } @media (max-width: 650px) { main { padding: 16px 10px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Agentic RAG Research Assistant</h1>
+    <p>Upload papers, retrieve evidence, verify analysis, and synthesize a sourced answer.</p>
+  </header>
+
+  <section>
+    <h2>Knowledge base</h2>
+    <form id="upload-form">
+      <input id="pdf" type="file" accept=".pdf,application/pdf" required>
+      <button>Index PDF</button>
+    </form>
+    <div id="documents"></div>
+  </section>
+
+  <section>
+    <h2>Ask a research question</h2>
+    <label for="workspace">Research workspace</label>
+    <select id="workspace"><option value="">Default workspace</option></select>
+    <button type="button" id="new-workspace">New workspace</button>
+    <form id="research-form">
+      <label for="question">Question</label>
+      <textarea id="question" rows="5" required placeholder="What is the main contribution of the Transformer architecture?"></textarea>
+      <label for="source">Search scope</label>
+      <select id="source"><option value="">All Documents</option></select>
+      <button id="research-button">Start research</button>
+    </form>
+    <div id="status" role="status"></div>
+  </section>
+
+  <section>
+    <h2>Diagram Generator</h2>
+    <p class="muted">Generate a safe Mermaid diagram from your methodology, system idea, or paper evidence.</p>
+    <form id="diagram-form">
+      <label for="diagram-description">Description or selected paper passage</label>
+      <textarea id="diagram-description" rows="4" required placeholder="Describe the research workflow and its agents."></textarea>
+      <label for="diagram-type">Diagram type</label>
+      <select id="diagram-type">
+        <option value="flowchart">Flowchart</option>
+        <option value="architecture">System architecture</option>
+        <option value="sequence">Sequence diagram</option>
+        <option value="er">Entity-relationship diagram</option>
+      </select>
+      <label for="diagram-source">Paper source (optional)</label>
+      <select id="diagram-source"><option value="">No paper source</option></select>
+      <button id="diagram-generate">Generate diagram</button>
+    </form>
+    <div id="diagram-status" role="status"></div>
+    <div id="diagram-list"></div>
+    <div id="diagram-editor" hidden>
+      <input id="diagram-title" aria-label="Diagram title">
+      <label for="diagram-mermaid">Editable Mermaid source</label>
+      <textarea id="diagram-mermaid" rows="12"></textarea>
+      <label for="diagram-refinement">Refine through chat</label>
+      <input id="diagram-refinement" placeholder="Add a verification agent before document export.">
+      <button type="button" id="diagram-refine">Refine</button>
+      <button type="button" id="diagram-save">Save source</button>
+      <button type="button" id="diagram-rename">Rename</button>
+      <select id="diagram-version"></select><button type="button" id="diagram-restore">Restore version</button>
+      <p id="diagram-downloads"></p>
+    </div>
+  </section>
+
+  <section id="result" hidden>
+    <h2>Final answer</h2>
+    <pre id="answer"></pre>
+    <p id="critic" class="muted"></p>
+    <h3>Sources</h3><div id="sources"></div>
+    <button id="download">Download report</button>
+    <div id="report-links"></div>
+    <details><summary>Supervisor plan</summary><pre id="plan"></pre></details>
+    <details><summary>Research analysis</summary><pre id="analysis"></pre></details>
+    <details><summary>Critic review</summary><pre id="critique"></pre></details>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let report = '', latestChatId = null, activeDiagram = null;
+async function loadWorkspaces() {
+  const response = await fetch('/api/workspaces');
+  const items = await response.json();
+  $('workspace').replaceChildren(new Option('Default workspace', ''));
+  for (const item of items) $('workspace').add(new Option(item.name, item.id));
+}
+async function loadDocuments() {
+  const response = await fetch('/api/documents');
+  const items = await response.json();
+  $('documents').replaceChildren();
+  const select = $('source');
+  select.replaceChildren(new Option('All Documents', ''));
+  $('diagram-source').replaceChildren(new Option('No paper source', ''));
+  for (const item of items) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.textContent = `${item.source} — ${item.pages} pages, ${item.chunks} chunks`;
+    const remove = document.createElement('button'); remove.className = 'danger'; remove.textContent = 'Remove';
+    remove.onclick = async () => { if (confirm(`Remove ${item.source}?`)) { await fetch(`/api/documents/${encodeURIComponent(item.source)}`, {method:'DELETE'}); await loadDocuments(); } };
+    card.append(' ', remove); $('documents').append(card); select.add(new Option(item.source, item.source));
+    $('diagram-source').add(new Option(item.source, item.source));
+  }
+}
+function workspaceId() { return $('workspace').value || '0'; }
+function showDiagram(diagram) {
+  activeDiagram = diagram; $('diagram-editor').hidden = false;
+  $('diagram-title').value = diagram.title; $('diagram-mermaid').value = diagram.mermaid_source;
+  $('diagram-downloads').innerHTML = `<a href="/api/diagrams/${diagram.id}/download?format=mmd">Download Mermaid source (.mmd)</a>`;
+  loadVersions();
+}
+async function loadDiagrams() {
+  const response = await fetch(`/api/workspaces/${workspaceId()}/diagrams`);
+  if (!response.ok) return;
+  const items = await response.json(); $('diagram-list').replaceChildren();
+  for (const diagram of items) {
+    const button = document.createElement('button'); button.textContent = `${diagram.title} (${diagram.diagram_type})`;
+    button.onclick = () => showDiagram(diagram); $('diagram-list').append(button);
+  }
+}
+async function loadVersions() {
+  if (!activeDiagram) return;
+  const response = await fetch(`/api/diagrams/${activeDiagram.id}/versions`); if (!response.ok) return;
+  $('diagram-version').replaceChildren(...(await response.json()).map(item => new Option(`Version ${item.version}`, item.version)));
+}
+$('workspace').onchange = loadDiagrams;
+$('diagram-form').onsubmit = async event => {
+  event.preventDefault(); const button = $('diagram-generate'); button.disabled = true; $('diagram-status').textContent = 'Generating and validating Mermaid…';
+  try {
+    const body = {description:$('diagram-description').value, diagram_type:$('diagram-type').value, source:$('diagram-source').value || null};
+    const response = await fetch(`/api/workspaces/${workspaceId()}/diagrams`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const result = await response.json(); if (!response.ok) throw Error(result.detail || 'Diagram generation failed.');
+    showDiagram(result); await loadDiagrams(); $('diagram-status').textContent = 'Diagram generated.';
+  } catch (error) { $('diagram-status').textContent = error.message; } finally { button.disabled = false; }
+};
+$('diagram-save').onclick = async () => {
+  if (!activeDiagram) return; const response = await fetch(`/api/diagrams/${activeDiagram.id}/source`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mermaid_source:$('diagram-mermaid').value})});
+  const result = await response.json(); $('diagram-status').textContent = response.ok ? 'Source saved as a new version.' : (result.detail || 'Source could not be saved.'); if (response.ok) { showDiagram(result); await loadDiagrams(); }
+};
+$('diagram-rename').onclick = async () => {
+  if (!activeDiagram) return; const title = $('diagram-title').value.trim(); const response = await fetch(`/api/diagrams/${activeDiagram.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title})});
+  if (response.ok) { showDiagram(await response.json()); await loadDiagrams(); } else $('diagram-status').textContent = 'Diagram could not be renamed.';
+};
+$('diagram-refine').onclick = async () => {
+  if (!activeDiagram) return; $('diagram-refine').disabled = true; const response = await fetch(`/api/diagrams/${activeDiagram.id}/refine`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({instruction:$('diagram-refinement').value})});
+  const result = await response.json(); $('diagram-refine').disabled = false; if (!response.ok) { $('diagram-status').textContent = result.detail || 'Refinement failed.'; return; } showDiagram(result); await loadDiagrams(); $('diagram-status').textContent = 'Diagram refined.';
+};
+$('diagram-restore').onclick = async () => {
+  if (!activeDiagram || !$('diagram-version').value) return; const response = await fetch(`/api/diagrams/${activeDiagram.id}/restore/${$('diagram-version').value}`, {method:'POST'});
+  const result = await response.json(); if (response.ok) { showDiagram(result); await loadDiagrams(); $('diagram-status').textContent = 'Version restored.'; } else $('diagram-status').textContent = result.detail || 'Restore failed.';
+};
+$('upload-form').onsubmit = async event => {
+  event.preventDefault(); const button = event.target.querySelector('button'); button.disabled = true;
+  const data = new FormData(); data.append('file', $('pdf').files[0]);
+  const response = await fetch('/api/documents', {method:'POST', body:data}); const body = await response.json();
+  $('status').textContent = response.ok ? `Indexed ${body.source}.` : (body.detail || 'Upload failed.');
+  button.disabled = false; if (response.ok) { $('pdf').value = ''; await loadDocuments(); }
+};
+$('research-form').onsubmit = async event => {
+  event.preventDefault(); $('research-button').disabled = true; $('status').textContent = 'Running retrieval and multi-agent workflow…'; $('result').hidden = true;
+  try {
+    const params = new URLSearchParams({question:$('question').value});
+    if ($('source').value) params.set('source', $('source').value);
+    if ($('workspace').value) params.set('workspace_id', $('workspace').value);
+    const response = await fetch('/api/research/stream?' + params);
+    if (!response.ok) throw Error('Research failed.');
+    const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '', body;
+    while (true) {
+      const {value, done} = await reader.read(); if (done) break;
+      buffer += decoder.decode(value, {stream:true});
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() || '';
+      for (const chunk of chunks) {
+        const line = chunk.split('\n').find(line => line.startsWith('data: ')); if (!line) continue;
+        const event = JSON.parse(line.slice(6)); $('status').textContent = event.event.replaceAll('_', ' ') + '…'; if (event.event === 'completed') body = event.data;
+      }
+    }
+    if (!body) throw Error('Research did not return a result.');
+    report = body.report; $('answer').textContent = body.answer; $('critic').textContent = `Critic: ${body.critique.status} · Revision rounds: ${body.revision_rounds}`;
+    $('sources').replaceChildren(...body.sources.map(([source, page]) => { const p = document.createElement('p'); p.textContent = `${source} — Page ${page}`; return p; }));
+    latestChatId = body.chat_id; $('plan').textContent = JSON.stringify(body.plan, null, 2); $('analysis').textContent = body.analysis; $('critique').textContent = body.critique.critique; $('result').hidden = false; $('status').textContent = 'Research completed.';
+    const diagramQuery = activeDiagram ? `&diagram_ids=${activeDiagram.id}` : '';
+    $('report-links').innerHTML = latestChatId ? `<a href="/api/reports/${latestChatId}?format=pdf${diagramQuery}">PDF</a> · <a href="/api/reports/${latestChatId}?format=docx${diagramQuery}">Word</a> · <a href="/api/reports/${latestChatId}?format=tex${diagramQuery}">LaTeX</a> · <a href="/api/reports/${latestChatId}?format=zip${diagramQuery}">LaTeX ZIP</a> · <a href="/api/reports/${latestChatId}?format=json${diagramQuery}">JSON</a>` : '';
+  } catch (error) { $('status').textContent = error.message; } finally { $('research-button').disabled = false; }
+};
+$('download').onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([report], {type:'text/plain'})); link.download = 'agentic_rag_research_report.txt'; link.click(); };
+$('new-workspace').onclick = async () => { const name = prompt('Workspace name'); if (name) { await fetch('/api/workspaces', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})}); await loadWorkspaces(); } };
+Promise.all([loadDocuments(), loadWorkspaces()]).then(loadDiagrams).catch(() => { $('status').textContent = 'Could not load project data.'; });
+</script>
+</body>
+</html>

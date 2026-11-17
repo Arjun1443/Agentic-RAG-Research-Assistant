@@ -1,0 +1,20 @@
+# Secrets
+.env
+
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ChromaDB local database
+data/chroma_db/
+data/chroma_db_legacy_backup_*/
+
+# Streamlit cache
+.streamlit/
+
+# OS files
+.DS_Store
+Thumbs.db
