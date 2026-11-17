@@ -754,11 +754,13 @@ $("writing-preview").onclick = () => {
   $("writing-document").hidden = !$("writing-document").hidden;
 };
 $("writing-generate").onclick = async () => {
-  if (!documents.length) {
-    notice("Upload papers before drafting a section.");
+  if (!$("writing-title").value.trim()) {
+    notice("Enter your project topic or title first.");
     return;
   }
+  if ($("writing-content").value.trim() && !confirm("Replace this section with a new AI draft? Your other sections will be kept.")) return;
   $("writing-generate").disabled = true;
+  $("writing-generate").textContent = "Writing your draft…";
   try {
     const data = await json(
       "/api/writing/draft",
@@ -767,15 +769,19 @@ $("writing-generate").onclick = async () => {
         section: $("writing-section").value,
         instruction: $("writing-instruction").value,
         source: $("source").value || null,
+        tone: $("writing-tone").value,
+        length: $("writing-length").value,
+        use_evidence: $("writing-evidence").checked && documents.length > 0,
       }),
     );
     $("writing-content").value = data.text;
     saveDraft();
-    notice("Section drafted. Check the cited evidence before using it.");
+    notice(data.evidence_based ? "Draft ready. Review the writing and check its cited evidence." : "Topic-based draft ready. Review it and add verified references and your project details.");
   } catch (error) {
     notice(error.message);
   } finally {
     $("writing-generate").disabled = false;
+    $("writing-generate").textContent = "Generate natural draft";
   }
 };
 $("writing-download").onclick = async () => {
