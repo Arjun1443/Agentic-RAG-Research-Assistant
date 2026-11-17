@@ -27,6 +27,7 @@
           ↻
         </button>
       </div>
+      <button id="new-chat" class="secondary">＋ New conversation</button>
       <div id="history" class="history"></div>
       <div class="account">
         <span id="account-name">Guest · local workspace</span
@@ -54,6 +55,10 @@
             Ask about your papers, compare approaches, or find a direction for
             your project.
           </p>
+        </div>
+        <div id="conversation" class="panel" hidden>
+          <h2>Conversation</h2>
+          <div id="chat-messages"></div>
         </div>
         <form id="research-form" class="panel">
           <label for="question">Research question</label

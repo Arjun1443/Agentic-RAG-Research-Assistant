@@ -1,0 +1,7 @@
+[project]
+name="agentic-rag-research-assistant"
+version="1.1.0"
+requires-python=">=3.12,<3.13"
+dependencies=["fastapi", "python-multipart", "python-dotenv", "pymupdf==1.26.6", "chromadb==1.5.9", "openai", "python-docx", "vercel==0.13.0"]
+[tool.vercel]
+entrypoint="index:app"

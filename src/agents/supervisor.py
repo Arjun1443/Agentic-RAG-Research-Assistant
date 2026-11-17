@@ -96,7 +96,7 @@ def create_supervisor_plan(question):
 # SUPERVISOR
 # ============================================================
 
-def run_supervisor(question, source=None, on_event=None, mode="simple"):
+def run_supervisor(question, source=None, on_event=None, mode="simple", conversation=None):
     """
     Run the complete multi-agent research workflow.
 
@@ -118,9 +118,14 @@ def run_supervisor(question, source=None, on_event=None, mode="simple"):
     # 1. CREATE PLAN
     # ========================================================
 
-    plan = create_supervisor_plan(
-        question
-    )
+    conversation = (conversation or [])[-4:]
+    history_text = "\n\n".join(f"Previous question: {turn['question'][:1000]}\nPrevious answer: {turn['answer'][:2000]}" for turn in conversation)
+    context_question = question
+    retrieval_question = question
+    if history_text:
+        context_question = f"Conversation context (not source evidence; resolve follow-up references using this):\n{history_text}\n\nCurrent question: {question}\nGround factual claims in the supplied paper evidence."
+        retrieval_question = conversation[-1]['question'][:1200] + "\nFollow-up: " + question
+    plan = create_supervisor_plan(question)
     emit = on_event or (lambda event, data=None: None)
     emit("plan", plan)
 
@@ -161,7 +166,7 @@ def run_supervisor(question, source=None, on_event=None, mode="simple"):
 
     emit("research_started")
     research_results = run_research_agent(
-        question=question,
+        question=retrieval_question,
         top_k=plan["settings"]["top_k"],
         source=source
     )
@@ -181,7 +186,7 @@ def run_supervisor(question, source=None, on_event=None, mode="simple"):
     print("=" * 70)
 
     analysis = run_analysis_agent(
-        question,
+        context_question,
         research_results
     )
     emit("analysis_completed")
@@ -214,7 +219,7 @@ def run_supervisor(question, source=None, on_event=None, mode="simple"):
 
         emit("critic_started", {"round": revision_round + 1})
         critic_result = run_critic_agent(
-            question,
+            context_question,
             research_results,
             analysis
         )
@@ -334,7 +339,7 @@ IMPORTANT:
 
     style = "Explain in plain language and briefly define technical terms." if mode == "simple" else "Preserve technical detail, equations, and methodological qualifications."
     final_answer = run_synthesis_agent(
-        question + "\nResponse style: " + style,
+        context_question + "\nResponse style: " + style,
         research_results,
         analysis,
         critic_result.get(

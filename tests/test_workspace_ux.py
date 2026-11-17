@@ -104,7 +104,7 @@ def test_invalid_uploads_are_actionable(client,monkeypatch,tmp_path):
 
 
 def test_stream_saves_research_and_surfaces_failure(client, monkeypatch):
-    def workflow(question, source, emit, mode):
+    def workflow(question, source, emit, mode, conversation=None):
         emit('research_completed', {'count': 1})
         return {'plan': {'question': question}, 'answer': 'Evidence-backed answer', 'critique': {'status': 'PASS'}, 'research': [{'source': 'paper.pdf', 'page': 1, 'text': 'Original passage'}], 'sources': [['paper.pdf', 1]], 'revision_rounds': 0}
     monkeypatch.setattr(main, 'run_supervisor', workflow)

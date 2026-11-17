@@ -447,3 +447,28 @@ dialog::backdrop {
     min-width: 130px;
   }
 }
+
+.chat-question {
+  background: var(--soft);
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-weight: 650;
+  margin-top: 28px;
+}
+.chat-answer {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 15px;
+}
+.history {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+@media (max-width: 650px) {
+  .side-heading,
+  .history {
+    display: block !important;
+  }
+  .history {
+    max-height: 160px;
+  }
+}

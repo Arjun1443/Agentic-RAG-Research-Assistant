@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import hashlib
 import json
 import os
 import uuid
@@ -37,13 +39,14 @@ from src.retriever import (
     list_indexed_documents,
 )
 from .storage import Storage
-from src.request_scope import scope, documents_dir
+from src.request_scope import scope, documents_dir, guest_user
 from .exports import pdf_report, tex_escape, latex_document, export_text
 from .diagram_render import pdf_for, png_for, svg_for
 
 DOCUMENTS_DIR = ROOT / "data" / "documents"
 STATIC_DIR = Path(__file__).parent / "static"
-STORAGE = Storage(ROOT / "data" / "research.sqlite3")
+from . import blob_store
+STORAGE = blob_store.BlobStorage() if blob_store.enabled() else Storage(ROOT / "data" / "research.sqlite3")
 
 app = FastAPI(
     title="Agentic RAG Research Assistant",
@@ -56,7 +59,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def request_scope(request: Request, call_next):
     from fastapi.responses import JSONResponse
     authorization = request.headers.get("authorization")
-    user = STORAGE.user_for_token(_token_from_auth(authorization))
+    guest = request.headers.get("x-guest-id", "")
+    guest_token = guest_user.set(-int(hashlib.sha256(guest.encode()).hexdigest()[:12], 16) if 16 <= len(guest) <= 100 else 0)
+    user = await asyncio.to_thread(STORAGE.user_for_token, _token_from_auth(authorization))
     if authorization and not user:
         return JSONResponse({"detail": "Your session is invalid. Please sign in again."}, status_code=401)
     raw = request.headers.get("x-workspace-id", request.query_params.get("workspace_id", "0"))
@@ -64,18 +69,21 @@ async def request_scope(request: Request, call_next):
         workspace = int(raw)
     except ValueError:
         return JSONResponse({"detail": "Invalid workspace."}, status_code=422)
-    if not STORAGE.workspace_owned_by(user, workspace):
+    if not await asyncio.to_thread(STORAGE.workspace_owned_by, user, workspace):
         return JSONResponse({"detail": "Workspace is not available."}, status_code=403)
     token = scope.set((user, workspace))
     try:
         return await call_next(request)
     finally:
         scope.reset(token)
+        guest_user.reset(guest_token)
 
 @app.get("/api/documents/{source}/preview")
 async def preview_document(source: str):
     filename = Path(source).name
     path = documents_dir() / filename
+    if filename == source and path.suffix.lower() == ".pdf" and blob_store.enabled():
+        await asyncio.to_thread(blob_store.restore_pdf, source, path)
     if filename != source or not path.is_file() or path.suffix.lower() != ".pdf":
         raise HTTPException(404, "PDF not found.")
     return FileResponse(path, media_type="application/pdf")
@@ -90,6 +98,7 @@ class ResearchRequest(BaseModel):
     source: Source | None = None
     workspace_id: int | None = None
     mode: str = "simple"
+    conversation_id: Annotated[str, StringConstraints(min_length=1, max_length=100)] = "default"
 
 
 class DiagramRequest(BaseModel):
@@ -229,6 +238,8 @@ async def health() -> dict[str, str]:
 @app.get("/api/documents", response_model=list[DocumentInfo])
 async def documents() -> list[DocumentInfo]:
     def load_documents() -> list[DocumentInfo]:
+        if blob_store.enabled():
+            return [DocumentInfo(**item) for item in blob_store.document_records()]
         return [
             DocumentInfo(
                 source=name,
@@ -283,6 +294,10 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentInfo:
             str(destination),
             filename,
         )
+        if blob_store.enabled():
+            from src.ingestion.vector_store import get_chroma_collection
+            collection = await asyncio.to_thread(get_chroma_collection)
+            await asyncio.to_thread(blob_store.persist_document, filename, destination, collection)
         return DocumentInfo(
             source=filename,
             pages=result["pages"],
@@ -294,7 +309,8 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentInfo:
     except Exception as exc:
         if "destination" in locals():
             destination.unlink(missing_ok=True)
-        raise HTTPException(500, "Could not index the uploaded PDF.") from exc
+        logging.exception("PDF indexing failed")
+        raise HTTPException(500, "Could not index this PDF. Please retry; no paper was added.") from exc
 
 
 @app.delete("/api/documents/{source}", status_code=204)
@@ -302,10 +318,18 @@ async def remove_document(source: str) -> None:
     filename = Path(source).name
     if filename != source or not filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Invalid PDF filename.")
+    if blob_store.enabled():
+        await asyncio.to_thread(blob_store.remove_document, filename)
     result = await asyncio.to_thread(delete_document, filename)
-    if not result.get("deleted"):
+    if not result.get("deleted") and not blob_store.enabled():
         raise HTTPException(404, "Document was not found.")
 
+
+
+
+def conversation_turns(user_id, workspace_id, conversation_id):
+    rows = STORAGE.history(user_id, workspace_id)
+    return [{"question":row["question"], "answer":row["result"].get("answer", "")} for row in reversed(rows) if row["result"].get("conversation_id", "default")==conversation_id][-4:]
 
 @app.post("/api/research")
 async def research(request: ResearchRequest, authorization: str | None = Header(default=None)) -> dict:
@@ -319,7 +343,9 @@ async def research(request: ResearchRequest, authorization: str | None = Header(
             request.question,
             request.source,
             mode=request.mode,
+            conversation=await asyncio.to_thread(conversation_turns, user_id, selected, request.conversation_id),
         )
+        result["conversation_id"] = request.conversation_id
         result["report"] = _report(result)
         result["report_formats"] = ["txt", "json", "pdf"]
         result["run_id"] = str(uuid.uuid4())
@@ -543,9 +569,10 @@ async def download_diagram(
 
 
 @app.get("/api/history")
-async def history(workspace_id: int | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+async def history(workspace_id: int | None = None, conversation_id: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
     user_id = STORAGE.user_for_token(_token_from_auth(authorization))
-    return await asyncio.to_thread(STORAGE.history, user_id, scope.get()[1])
+    rows = await asyncio.to_thread(STORAGE.history, user_id, scope.get()[1])
+    return [row for row in rows if conversation_id is None or row["result"].get("conversation_id", "default")==conversation_id]
 
 
 @app.get("/api/research/stream")
@@ -554,6 +581,7 @@ async def research_stream(
     source: Source | None = None,
     workspace_id: int | None = None,
     mode: str = "simple",
+    conversation_id: Annotated[str, Query(min_length=1, max_length=100)] = "default",
     authorization: str | None = Header(default=None),
 ) -> StreamingResponse:
     queue: asyncio.Queue = asyncio.Queue()
@@ -563,7 +591,9 @@ async def research_stream(
         asyncio.run_coroutine_threadsafe(queue.put({"event": event, "data": data}), loop)
 
     async def events():
-        task = asyncio.create_task(asyncio.to_thread(run_supervisor, question, source, emit, mode))
+        user_id = STORAGE.user_for_token(_token_from_auth(authorization))
+        previous = await asyncio.to_thread(conversation_turns, user_id, scope.get()[1], conversation_id)
+        task = asyncio.create_task(asyncio.to_thread(run_supervisor, question, source, emit, mode, previous))
         yield f"data: {json.dumps({'event': 'started'})}\n\n"
         while not task.done():
             try:
@@ -573,6 +603,7 @@ async def research_stream(
                 yield "data: {\"event\":\"waiting\"}\n\n"
         try:
             result = await task
+            result["conversation_id"] = conversation_id
             result["report"] = _report(result)
             result["chat_id"] = await asyncio.to_thread(
                 STORAGE.save_chat,

@@ -13,4 +13,5 @@ openai
 tiktoken
 pillow
 python-docx
-python-docx
+
+vercel==0.13.0

@@ -97,7 +97,8 @@ class Storage:
 
     def user_for_token(self, token):
         if not token:
-            return 0
+            from src.request_scope import guest_user
+            return guest_user.get()
         with sqlite3.connect(self.path) as db:
             row = db.execute("SELECT user_id FROM sessions WHERE token=?", (token,)).fetchone()
             return row[0] if row else 0

@@ -23,10 +23,28 @@ const mermaidReady = import(
 const notice = (message) => {
   $("notice").textContent = message;
 };
+let guestId = localStorage.getItem("research-guest-id");
+if (!guestId) {
+  guestId = crypto.randomUUID();
+  localStorage.setItem("research-guest-id", guestId);
+}
+let conversationId = "default";
+function conversationKey() {
+  return `research-conversation:${sessionStorage.getItem("research-user") || "guest"}:${workspace}`;
+}
+function selectConversation(id) {
+  conversationId = id;
+  localStorage.setItem(conversationKey(), id);
+}
+function restoreConversation() {
+  conversationId = localStorage.getItem(conversationKey()) || "default";
+}
+restoreConversation();
 function headers(extra = {}) {
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     "X-Workspace-Id": workspace,
+    "X-Guest-Id": guestId,
     ...extra,
   };
 }
@@ -172,6 +190,7 @@ async function changeWorkspace(id, persist = true) {
   $("result").hidden = true;
   notice("");
   loadDraft();
+  restoreConversation();
   await reload();
 }
 async function reload() {
@@ -263,6 +282,7 @@ $("upload-form").onsubmit = async (e) => {
         await json("/api/documents", { method: "POST", body: data });
         $("upload-status").textContent = `${file.name} is ready for questions.`;
       } catch (error) {
+        $("upload-status").textContent = `${file.name}: ${error.message}`;
         notice(`${file.name}: ${error.message}`);
       }
     }
@@ -276,20 +296,57 @@ $("upload-form").onsubmit = async (e) => {
 };
 async function loadHistory() {
   const items = await json("/api/history");
+  const groups = new Map();
+  for (const row of items) {
+    const id = row.result.conversation_id || "default";
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(row);
+  }
   $("history").replaceChildren();
   if (!items.length)
-    $("history").textContent = "Your saved questions will appear here.";
-  items.forEach((item) => {
-    const b = button(item.question, () => {
-      latest = { ...item.result, chat_id: item.id };
-      $("question").value = item.question;
-      showResult(latest);
+    $("history").textContent = "Your conversations will appear here.";
+  for (const [id, rows] of groups) {
+    const first = rows[rows.length - 1];
+    const b = button(first.question + " · " + rows.length, () => {
+      selectConversation(id);
+      renderConversation(rows);
+      const row = rows[0];
+      $("question").value = "";
+      showResult({ ...row.result, chat_id: row.id });
       switchView("research");
     });
-    b.title = `${item.question} · ${item.created_at}`;
+    b.title = first.question;
     $("history").append(b);
-  });
+  }
+  const current = groups.get(conversationId) || [];
+  renderConversation(current);
 }
+function renderConversation(rows) {
+  $("chat-messages").replaceChildren();
+  $("conversation").hidden = !rows.length;
+  for (const row of [...rows].reverse()) {
+    const question = document.createElement("p");
+    question.className = "chat-question";
+    question.textContent = row.question;
+    const answer = document.createElement("div");
+    answer.className = "prose chat-answer";
+    markdown(answer, row.result.answer);
+    const evidence = button("Inspect sources and download", () =>
+      showResult({ ...row.result, chat_id: row.id }),
+    );
+    $("chat-messages").append(question, answer, evidence);
+  }
+}
+$("new-chat").onclick = () => {
+  selectConversation(crypto.randomUUID());
+  $("question").value = "";
+  $("result").hidden = true;
+  renderConversation([]);
+  switchView("research");
+  notice(
+    "New conversation started. Follow-up questions will use this conversation only.",
+  );
+};
 $("refresh-history").onclick = () =>
   loadHistory().catch((e) => notice(e.message));
 function showResult(body) {
@@ -383,6 +440,14 @@ $("research-form").onsubmit = async (e) => {
     return;
   }
   controller = new AbortController();
+  for (const id of [
+    "workspace-select",
+    "new-workspace",
+    "new-chat",
+    "account-button",
+    "logout",
+  ])
+    if ($(id)) $(id).disabled = true;
   $("research-button").disabled = true;
   $("cancel").hidden = false;
   $("progress").hidden = false;
@@ -401,6 +466,7 @@ $("research-form").onsubmit = async (e) => {
       question: $("question").value,
       workspace_id: workspace,
       mode: $("answer-mode").value,
+      conversation_id: conversationId,
     });
     if ($("source").value) params.set("source", $("source").value);
     const response = await api("/api/research/stream?" + params, {
@@ -443,6 +509,7 @@ $("research-form").onsubmit = async (e) => {
         "The connection ended before the answer was ready. Check history before retrying.",
       );
     await loadHistory();
+    $("question").value = "";
   } catch (error) {
     $("status").textContent =
       error.name === "AbortError"
@@ -450,6 +517,14 @@ $("research-form").onsubmit = async (e) => {
         : error.message;
     notice($("status").textContent);
   } finally {
+    for (const id of [
+      "workspace-select",
+      "new-workspace",
+      "new-chat",
+      "account-button",
+      "logout",
+    ])
+      if ($(id)) $(id).disabled = false;
     clearInterval(timer);
     $("research-button").disabled = false;
     $("cancel").hidden = true;

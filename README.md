@@ -22,6 +22,19 @@ The primary application uses **FastAPI with an HTML, CSS, and JavaScript interfa
 
 **Image generation is planned for future development.** The current diagram feature generates structured Mermaid diagrams; it does not generate text-to-image illustrations.
 
+## Conversation memory and persistent storage
+
+- Follow-up questions receive the last four question/answer turns from the active conversation. Earlier AI answers are context, not independent research evidence.
+- The sidebar groups saved research by conversation. Open a past conversation to review its questions, answers, and evidence, or choose **New conversation** to start a separate topic.
+- With a connected private Vercel Blob store, PDF files, indexed chunks/embeddings, accounts, sessions, workspaces, diagram versions, and completed chats persist across function instances and deployments.
+- Each document manifest is saved after its PDF and index payload have been stored. A new function instance restores its search index from the stored embeddings instead of depending on its temporary filesystem.
+- Guest sessions are separated by a random browser identifier. Use a signed-in account to access your workspaces across devices; guest history depends on retaining that browser's local identifier.
+- Writer drafts still autosave in the browser. They are separate from server-saved research conversations.
+
+### Vercel setup
+
+Connect a **private** Blob store to this project in Vercel Storage. The integration supplies its credentials as environment variables; do not commit them. Redeploy after connecting the store. The included `pyproject.toml`, `index.py`, and `vercel.json` configure the FastAPI entrypoint and Python dependencies. Hosted uploads are limited to 4 MB per PDF to stay below the serverless request-size limit. Local development supports the existing larger upload limit.
+
 ## Research workflow
 
 1. Sign in or use the shared guest workspace.

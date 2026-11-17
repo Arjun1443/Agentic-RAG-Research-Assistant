@@ -44,6 +44,8 @@ def get_collection():
         name=COLLECTION_NAME
     )
 
+    from fastapi_app import blob_store
+    if blob_store.enabled(): blob_store.hydrate(collection)
     return collection
 
 
