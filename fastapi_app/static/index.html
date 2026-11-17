@@ -275,13 +275,13 @@
         <div class="panel">
           <h2>Build your project document</h2>
           <p class="muted">
-            Draft sections from your papers, then edit them. Proposed ideas and
-            reported findings should remain clearly separated.
+            Enter a topic and let AI draft clear, natural content. Choose a writing
+            style, then review and edit your draft before exporting.
           </p>
           <div class="toolbar">
             <div>
-              <label for="writing-title">Project title</label
-              ><input id="writing-title" placeholder="My research project" />
+              <label for="writing-title">Project topic or title</label
+              ><input id="writing-title" maxlength="300" placeholder="e.g. AI-powered emergency vehicle detection" />
             </div>
             <div>
               <label for="writing-section">Section</label
@@ -296,13 +296,20 @@
               </select>
             </div>
           </div>
+          <div class="toolbar">
+            <div><label for="writing-tone">Writing style</label>
+              <select id="writing-tone"><option value="natural">Natural and engaging</option><option value="academic">Readable academic</option><option value="simple">Simple and beginner-friendly</option></select></div>
+            <div><label for="writing-length">Draft length</label>
+              <select id="writing-length"><option value="short">Short (~250 words)</option><option value="standard" selected>Standard (~500 words)</option><option value="detailed">Detailed (~900 words)</option></select></div>
+            <label><input type="checkbox" id="writing-evidence" checked /> Use uploaded paper evidence when available</label>
+          </div>
           <label for="writing-instruction">Instructions for this section</label
           ><textarea
             id="writing-instruction"
             rows="3"
             placeholder="Explain the problem, cite evidence, and describe our proposed approach."
           ></textarea
-          ><button id="writing-generate">Draft selected section</button
+          ><button id="writing-generate">Generate natural draft</button
           ><label for="writing-content">Editable section</label
           ><textarea
             id="writing-content"
