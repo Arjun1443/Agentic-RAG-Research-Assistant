@@ -18,3 +18,6 @@ data/chroma_db_legacy_backup_*/
 # OS files
 .DS_Store
 Thumbs.db
+data/workspaces/
+*.sqlite3
+node_modules/

@@ -13,3 +13,4 @@ openai
 tiktoken
 pillow
 python-docx
+python-docx

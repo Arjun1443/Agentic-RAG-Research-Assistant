@@ -1,3 +1,4 @@
+from src.request_scope import data_dir, documents_dir
 import os
 from pathlib import Path
 
@@ -36,7 +37,7 @@ def get_collection():
     """
 
     client = chromadb.PersistentClient(
-        path=DB_PATH
+        path=str(data_dir() / "chroma_db")
     )
 
     collection = client.get_or_create_collection(
@@ -552,11 +553,7 @@ def delete_document(
     )
 
 
-    pdf_path = os.path.join(
-        "data",
-        "documents",
-        source_name
-    )
+    pdf_path = str(documents_dir() / source_name)
 
     file_removed = False
 

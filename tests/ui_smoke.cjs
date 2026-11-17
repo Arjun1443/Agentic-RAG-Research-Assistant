@@ -1,0 +1,47 @@
+// DOM interaction tests with network/model calls replaced by deterministic fixtures.
+const {JSDOM} = require('jsdom');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const base = path.join(__dirname, '..', 'fastapi_app', 'static');
+const dom = new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'), {url:'http://localhost',runScripts:'outside-only'});
+const w=dom.window, errors=[];
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+w.HTMLDialogElement.prototype.close=function(){this.open=false;};
+w.fetch=async(url,options={})=>{
+  let data=[];
+  if(url==='/api/documents') data=[{source:'paper.pdf',pages:3,chunks:8}];
+  if(url==='/api/auth/login')data={token:'test-token'};
+  if(url==='/api/workspaces' && options.method==='POST')data={id:1,name:'New'};
+  if(url==='/api/writing/draft')data={text:'Generated section'};
+  return {ok:true,json:async()=>data};
+};
+w.prompt=()=> 'New';
+w.addEventListener('error',e=>errors.push(e.message));
+let script=fs.readFileSync(path.join(base,'studio.js'),'utf8');
+const start=script.indexOf('const mermaidReady');
+const end=script.indexOf('const notice',start);
+script=script.slice(0,start)+'const mermaidReady = Promise.resolve();\n'+script.slice(end);
+w.eval(script);
+const tick=()=>new Promise(resolve=>setTimeout(resolve,10));
+(async()=>{
+  await tick();
+  assert.equal(w.document.querySelectorAll('#shortcuts button').length,5);
+  assert.equal(w.document.querySelectorAll('#documents .card').length,1);
+  w.document.querySelector('[data-view="writing"]').click();
+  assert.equal(w.document.getElementById('writing').hidden,false);
+  const content=w.document.getElementById('writing-content');
+  content.value='My abstract';content.dispatchEvent(new w.Event('input'));
+  w.document.getElementById('writing-section').value='Introduction';w.document.getElementById('writing-section').dispatchEvent(new w.Event('change'));
+  content.value='My introduction';content.dispatchEvent(new w.Event('input'));
+  w.document.getElementById('writing-section').value='Abstract';w.document.getElementById('writing-section').dispatchEvent(new w.Event('change'));
+  assert.equal(content.value,'My abstract');
+  w.document.getElementById('new-workspace').click();await tick();
+  assert.equal(content.value,'');
+  assert.equal(JSON.parse(w.localStorage.getItem('research-draft:guest:0')).sections.Abstract,'My abstract');
+  assert.equal(w.localStorage.getItem('research-draft:guest:1'),null);
+  w.document.getElementById('theme').click();assert(w.document.body.classList.contains('dark'));
+  assert.deepEqual(errors,[]);
+  console.log('UI smoke checks passed: navigation, library, shortcuts, draft sections, workspace isolation, theme.');
+  w.close();
+})().catch(error=>{console.error(error);process.exitCode=1;w.close();});

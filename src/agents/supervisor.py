@@ -96,7 +96,7 @@ def create_supervisor_plan(question):
 # SUPERVISOR
 # ============================================================
 
-def run_supervisor(question, source=None, on_event=None):
+def run_supervisor(question, source=None, on_event=None, mode="simple"):
     """
     Run the complete multi-agent research workflow.
 
@@ -332,8 +332,9 @@ IMPORTANT:
     print("4. SYNTHESIS AGENT")
     print("=" * 70)
 
+    style = "Explain in plain language and briefly define technical terms." if mode == "simple" else "Preserve technical detail, equations, and methodological qualifications."
     final_answer = run_synthesis_agent(
-        question,
+        question + "\nResponse style: " + style,
         research_results,
         analysis,
         critic_result.get(

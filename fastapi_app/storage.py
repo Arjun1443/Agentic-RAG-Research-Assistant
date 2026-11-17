@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -60,7 +61,9 @@ class Storage:
 
     @staticmethod
     def _hash(password):
-        return hashlib.sha256(password.encode()).hexdigest()
+        salt = secrets.token_hex(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 600000).hex()
+        return f"pbkdf2${salt}${digest}"
 
     def register(self, username, password):
         with sqlite3.connect(self.path) as db:
@@ -73,11 +76,24 @@ class Storage:
     def login(self, username, password):
         with sqlite3.connect(self.path) as db:
             row = db.execute("SELECT id,password_hash FROM users WHERE username=?", (username,)).fetchone()
-            if not row or row[1] != self._hash(password):
+            valid = False
+            if row:
+                if row[1].startswith("pbkdf2$"):
+                    _, salt, digest = row[1].split("$")
+                    valid = hmac.compare_digest(digest, hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 600000).hex())
+                else:
+                    valid = hmac.compare_digest(row[1], hashlib.sha256(password.encode()).hexdigest())
+                    if valid:
+                        db.execute("UPDATE users SET password_hash=? WHERE id=?", (self._hash(password), row[0]))
+            if not valid:
                 raise ValueError("Invalid credentials.")
             token = secrets.token_urlsafe(32)
             db.execute("INSERT INTO sessions(token,user_id) VALUES(?,?)", (token, row[0]))
             return token, row[0]
+
+    def logout(self, token):
+        with sqlite3.connect(self.path) as db:
+            db.execute("DELETE FROM sessions WHERE token=?", (token,))
 
     def user_for_token(self, token):
         if not token:
@@ -101,7 +117,7 @@ class Storage:
         with sqlite3.connect(self.path) as db:
             cursor = db.execute(
                 "INSERT INTO chats(user_id,workspace_id,question,result_json) VALUES(?,?,?,?)",
-                (user_id, workspace_id, question, json.dumps(result)),
+                (user_id, workspace_id or 0, question, json.dumps(result)),
             )
             return cursor.lastrowid
 
@@ -109,7 +125,7 @@ class Storage:
         query = "SELECT id,workspace_id,question,result_json,created_at FROM chats WHERE user_id=?"
         args = [user_id]
         if workspace_id is not None:
-            query += " AND workspace_id=?"
+            query += " AND COALESCE(workspace_id,0)=?"
             args.append(workspace_id)
         query += " ORDER BY id DESC LIMIT 50"
         with sqlite3.connect(self.path) as db:
@@ -119,7 +135,7 @@ class Storage:
             ]
 
     def workspace_owned_by(self, user_id, workspace_id):
-        if workspace_id == 0 and user_id == 0:
+        if workspace_id == 0:
             return True
         with sqlite3.connect(self.path) as db:
             return db.execute(
@@ -181,7 +197,7 @@ class Storage:
                 """
                 SELECT id,workspace_id,title,diagram_type,prompt,mermaid_source,
                        assumptions_json,source_references_json,created_at,updated_at
-                FROM diagrams WHERE user_id=? AND workspace_id=? ORDER BY updated_at DESC
+                FROM diagrams WHERE user_id=? AND COALESCE(workspace_id,0)=? ORDER BY updated_at DESC
                 """,
                 (user_id, workspace_id),
             ).fetchall()

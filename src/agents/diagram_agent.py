@@ -57,7 +57,7 @@ def _client_and_model():
     else:
         base_url = os.getenv("DIAGRAM_BASE_URL", "https://api.groq.com/openai/v1")
         api_key = os.getenv("DIAGRAM_API_KEY", os.getenv("GROQ_API_KEY"))
-        model = os.getenv("DIAGRAM_MODEL", os.getenv("GROQ_MODEL", model))
+        model = os.getenv("DIAGRAM_MODEL", os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
     if not api_key:
         raise DiagramError(
             "Diagram model credentials are not configured. Set DIAGRAM_API_KEY or GROQ_API_KEY."

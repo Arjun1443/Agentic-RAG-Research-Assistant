@@ -7,6 +7,55 @@ The system provides a Streamlit web interface where users can upload research pa
 The primary interface is now a FastAPI service with a browser client. The
 original Streamlit interface remains available as a companion implementation.
 
+## Research workspace upgrade
+
+The FastAPI browser app now provides:
+
+- Responsive navigation, dark mode, question shortcuts, readable Markdown answers and comparison tables.
+- Research history with reopenable answers, stage progress, elapsed time and a stop-waiting control.
+- Batch PDF upload (25 MB per file), library filtering, duplicate checks, clear scanned-PDF messages and page-specific PDF previews with retrieved excerpts.
+- Sign-in, sign-out, password hashing with PBKDF2 and separate document/vector storage per user and workspace. Existing SHA-256 passwords upgrade on successful login.
+- arXiv discovery with publication-year filtering and links to paper/PDF pages.
+- Actual Mermaid previews, editable source, refinement, saved versions and SVG downloads from the preview. Server SVG/PNG/PDF exports use Mermaid CLI to preserve relationships.
+- A project writer with separate sections, evidence-based drafting, editable comparison tables in Markdown, browser autosave and PDF/Word/LaTeX/Markdown export.
+- Paginated PDF reports that retain long lines and Unicode, proper LaTeX escaping and source bundles.
+
+Guest mode is a shared local/demo workspace. Sign in before adding private documents to a shared deployment. Personal default workspaces and named workspaces have separate data directories; existing guest documents are preserved. Writer drafts are saved in the current browser by account and workspace, not synchronized between devices. Research history stores completed answers; it is not conversational memory automatically passed to the next question.
+
+Model generation requires configured hosted credentials. Paper discovery requires access to `export.arxiv.org`; Markdown and live diagram previews load pinned libraries from `cdn.jsdelivr.net`. The interface stays usable when those preview libraries cannot load. This upgrade does not require downloading a text/image generation model.
+
+### Setup
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Copy `.env.example` to `.env` and set your real research API key. The default diagram configuration reuses that research provider; an independently hosted OpenAI-compatible diagram provider can be configured instead. Provider availability and quotas apply.
+
+For server-side diagram image exports, install Node.js and run:
+
+```bash
+npm ci
+```
+
+This installs Mermaid CLI and its Chromium renderer. It is optional for research, writing, browser previews, Mermaid-source downloads and browser SVG downloads. For a custom Chromium configuration, set `MERMAID_PUPPETEER_CONFIG` to a Puppeteer JSON configuration path. Set `MERMAID_CLI` if the executable is not in `PATH` or `node_modules/.bin`.
+
+```bash
+python -m uvicorn fastapi_app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000`. Select a workspace, upload papers, then research, diagram or draft sections. Always inspect supporting passages; an automated critic PASS is not a correctness guarantee. Stop waiting disconnects the client; it cannot interrupt a provider call already in progress.
+
+### Validation
+
+```bash
+python -m pip install pytest httpx
+pytest -q
+npm test
+```
+
+Diagram export tests require the optional Mermaid installation and a working Chromium environment. API tests use mocked model results and temporary databases; live provider quality/quotas must be checked with your configured account. The original Streamlit app remains available, with its older interface.
+
 ## FastAPI application
 
 From the repository root:

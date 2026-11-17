@@ -1,3 +1,4 @@
+from src.request_scope import data_dir, documents_dir
 import os
 from pathlib import Path
 
@@ -15,7 +16,7 @@ COLLECTION_NAME = "research_documents"
 def get_chroma_collection():
 
     client = chromadb.PersistentClient(
-        path=DB_PATH
+        path=str(data_dir() / "chroma_db")
     )
 
     collection = client.get_or_create_collection(
