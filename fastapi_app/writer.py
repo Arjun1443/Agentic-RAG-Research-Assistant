@@ -1,6 +1,6 @@
 """Topic-first project writing with optional paper evidence."""
 import json
-from src.agents.synthesis_agent import get_groq_client, MODEL_NAME
+from src.inference import get_groq_client, GROQ_MODEL as MODEL_NAME
 
 TONES = {
     "natural": "Natural, clear prose with varied sentence lengths and smooth transitions.",

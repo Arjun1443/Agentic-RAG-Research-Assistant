@@ -372,3 +372,21 @@ No license is declared in this README. Check the repository for a license file b
 ### Natural AI Project Writer
 
 Enter your project topic, choose a section, select Natural and engaging, Readable academic, or Simple and beginner-friendly, and click Generate natural draft. Choose a short (~250 words), standard (~500 words), or detailed (~900 words) draft. PDFs are optional: enable paper evidence to ground the draft in available uploaded sources. Topic-only drafts need verified references and your actual project details before use. Drafts remain editable and autosave in your browser, with PDF, Word, LaTeX and Markdown exports. Existing section content requires confirmation before replacement. Generated results and references must not be treated as completed experiments.
+
+## Research serving and evaluation
+
+The Vercel FastAPI app can call authenticated OpenAI-compatible vLLM and SGLang servers. Configure these servers on separate accelerator-capable infrastructure and expose their chat completions endpoints through HTTPS with authentication. Use the exact model IDs advertised by the servers.
+
+- Set `RAG_BACKEND=vllm` and `RAG_CRITIC_BACKEND=sglang` to run analysis, revisions, and synthesis on vLLM and critique on SGLang.
+- Set `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY`, `SGLANG_BASE_URL`, `SGLANG_MODEL`, and `SGLANG_API_KEY` in the Vercel environment, then redeploy. Base URLs end in `/v1`. For local development, loopback HTTP endpoints are supported.
+- With no backend override, the research workflow uses the existing Groq settings. The project writer and diagram provider retain their existing configuration.
+
+The offline benchmark runs on an isolated Chroma index. It creates PDFs from a labeled synthetic corpus, ingests them through the same pipeline as real PDFs, and compares semantic-only ranking with the existing hybrid reranker at the same cutoff. JAX computes page-level Recall@k and reciprocal rank. Transformers loads a fast tokenizer and Hugging Face Tokenizers measures evidence and answer text tokens. Use the same model at both endpoints and pass that model's tokenizer for a matched comparison. These text counts exclude chat-template overhead.
+
+```bash
+python -m pip install -r requirements.txt -r evaluation/requirements.txt
+python -m evaluation.run --tokenizer org/model > retrieval-results.json
+python -m evaluation.run --tokenizer org/model --backends vllm sglang > serving-results.json
+```
+
+The serving benchmark runs the full research workflow on each engine separately. It records wall-clock latency, answers, cited pages, citation overlap with labeled pages, and citation overlap with retrieved pages. Check that each cited passage supports its associated claim by reviewing the generated answers against the PDFs. The page metrics measure page agreement and the critic verdict is a separate model judgment. The provided synthetic cases are a smoke benchmark. Pass `--fixture` with additional labeled cases to measure broader retrieval quality.

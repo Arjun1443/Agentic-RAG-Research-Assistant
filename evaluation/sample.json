@@ -1,0 +1,28 @@
+{
+  "documents": {
+    "study-a.pdf": [
+      "Synthetic study A describes a vision classifier evaluated on daytime road images.",
+      "Study A used mean average precision at IoU 0.50 (mAP50) as its primary evaluation metric. The held-out dataset contained 240 daytime images.",
+      "Study A used an encoder with two attention layers and a patch embedding."
+    ],
+    "study-b.pdf": [
+      "Synthetic study B explored an object detector on nighttime intersections.",
+      "Study B trained using AdamW with an initial learning rate of 0.0003.",
+      "Study B reported average precision at IoU 0.75 (AP75). Its held-out dataset contained 180 nighttime images."
+    ]
+  },
+  "cases": [
+    {
+      "question": "What primary evaluation metric did Study A use on its held-out data?",
+      "pages": [["study-a.pdf", 2]]
+    },
+    {
+      "question": "Compare the evaluation metric and held-out data in Study A versus Study B.",
+      "pages": [["study-a.pdf", 2], ["study-b.pdf", 3]]
+    },
+    {
+      "question": "What optimizer and initial learning rate did Study B use?",
+      "pages": [["study-b.pdf", 2]]
+    }
+  ]
+}

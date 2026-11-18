@@ -117,7 +117,8 @@ def _search_single_document(
     collection,
     query,
     top_k,
-    source
+    source,
+    ranking="hybrid",
 ):
     """
     Search only one specific document.
@@ -132,7 +133,7 @@ def _search_single_document(
     )
 
     semantic = _format_results(results)
-    return _hybrid_rerank(query, semantic, top_k)
+    return _rank(query, semantic, top_k, ranking)
 
 
 def _hybrid_rerank(query, semantic_results, top_k):
@@ -157,6 +158,15 @@ def _hybrid_rerank(query, semantic_results, top_k):
     ]
 
 
+def _rank(query, candidates, top_k, ranking):
+    if ranking == "semantic":
+        return [
+            {key: value for key, value in item.items() if not key.startswith("_")}
+            for item in candidates[:top_k]
+        ]
+    return _hybrid_rerank(query, candidates, top_k)
+
+
 # ============================================================
 # SEARCH ALL DOCUMENTS
 # ============================================================
@@ -164,7 +174,8 @@ def _hybrid_rerank(query, semantic_results, top_k):
 def _search_all_documents(
     collection,
     query,
-    top_k
+    top_k,
+    ranking="hybrid",
 ):
     """
     Search each indexed document independently.
@@ -294,7 +305,7 @@ def _search_all_documents(
     )
 
 
-    final_results = _hybrid_rerank(query, with_distance + without_distance, top_k)
+    final_results = _rank(query, with_distance + without_distance, top_k, ranking)
 
 
     # --------------------------------------------------------
@@ -323,7 +334,9 @@ def _search_all_documents(
 def search_documents(
     query,
     top_k=5,
-    source=None
+    source=None,
+    *,
+    ranking="hybrid",
 ):
     """
     Search the vector database.
@@ -337,6 +350,8 @@ def search_documents(
         evidence from multiple papers.
     """
 
+    if ranking not in {"hybrid", "semantic"}:
+        raise ValueError("Unknown retrieval ranking.")
     collection = get_collection()
 
 
@@ -346,14 +361,16 @@ def search_documents(
             collection=collection,
             query=query,
             top_k=top_k,
-            source=source
+            source=source,
+            ranking=ranking
         )
 
 
     return _search_all_documents(
         collection=collection,
         query=query,
-        top_k=top_k
+        top_k=top_k,
+        ranking=ranking
     )
 
 

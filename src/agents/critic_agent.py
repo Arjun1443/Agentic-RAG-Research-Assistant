@@ -1,35 +1,12 @@
-import os
+import re
 
-from dotenv import load_dotenv
-from openai import OpenAI, RateLimitError
+from openai import RateLimitError
 
+from src.inference import complete_research
 
-load_dotenv()
-
-
-MODEL_NAME = os.getenv(
-    "GROQ_MODEL",
-    "openai/gpt-oss-20b"
-)
 
 MAX_OUTPUT_TOKENS = 400
 MAX_CHUNK_CHARS = 3000
-
-
-def get_groq_client():
-
-    api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-
-        raise ValueError(
-            "GROQ_API_KEY was not found in the .env file."
-        )
-
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://api.groq.com/openai/v1"
-    )
 
 
 def build_context(research_results):
@@ -118,14 +95,10 @@ Rules:
 """
 
 
-    client = get_groq_client()
-
-
     try:
 
-        response = client.chat.completions.create(
-
-            model=MODEL_NAME,
+        content = complete_research(
+            "critic",
 
             messages=[
                 {
@@ -141,30 +114,15 @@ Rules:
                 }
             ],
 
-            temperature=0.1,
-
             max_tokens=MAX_OUTPUT_TOKENS
         )
 
-        critique = (
-            response.choices[0]
-            .message
-            .content
-        )
-
-
-        if "NEEDS_REVISION" in critique.upper():
-
-            status = "NEEDS_REVISION"
-
-        else:
-
-            status = "PASS"
-
+        verdict = re.search(r"CRITIC VERDICT:\s*(PASS|NEEDS_REVISION)\b", content, re.IGNORECASE)
+        status = verdict.group(1).upper() if verdict else "NEEDS_REVISION"
 
         return {
             "status": status,
-            "critique": critique
+            "critique": content
         }
 
 
@@ -174,7 +132,7 @@ Rules:
             "status": "RATE_LIMITED",
             "critique": (
                 "Critic verification could not be completed "
-                "because the Groq model rate limit was reached."
+                "because the research model rate limit was reached."
             )
         }
 

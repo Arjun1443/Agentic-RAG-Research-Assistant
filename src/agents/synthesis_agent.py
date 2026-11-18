@@ -1,35 +1,10 @@
-import os
+from openai import RateLimitError
 
-from dotenv import load_dotenv
-from openai import OpenAI, RateLimitError
+from src.inference import complete_research
 
-
-load_dotenv()
-
-
-MODEL_NAME = os.getenv(
-    "GROQ_MODEL",
-    "openai/gpt-oss-20b"
-)
 
 MAX_OUTPUT_TOKENS = 600
 MAX_CHUNK_CHARS = 3000
-
-
-def get_groq_client():
-
-    api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-
-        raise ValueError(
-            "GROQ_API_KEY was not found in the .env file."
-        )
-
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://api.groq.com/openai/v1"
-    )
 
 
 def build_context(research_results):
@@ -97,7 +72,7 @@ Rules:
 2. Use only the supplied evidence.
 3. Follow the critic's corrections.
 4. Remove unsupported claims.
-5. Cite exact source filenames and page numbers beside factual claims.
+5. Cite each factual claim using [exact-filename.pdf, p. 2], substituting the actual filename and PDF page. Cite each page separately.
 6. Do not mention internal agents.
 7. Do not repeat the same point.
 8. If evidence is insufficient, say so. For questions about conversation history, you may recall user-provided names, preferences, and earlier questions from conversation context, explicitly attributing them to the user; previous AI answers are not independent research evidence.
@@ -109,14 +84,10 @@ Return only the final answer.
 """
 
 
-    client = get_groq_client()
-
-
     try:
 
-        response = client.chat.completions.create(
-
-            model=MODEL_NAME,
+        content = complete_research(
+            "synthesis",
 
             messages=[
                 {
@@ -132,12 +103,10 @@ Return only the final answer.
                 }
             ],
 
-            temperature=0.1,
-
             max_tokens=MAX_OUTPUT_TOKENS
         )
 
-        return response.choices[0].message.content
+        return content
 
 
     except RateLimitError:
@@ -146,7 +115,7 @@ Return only the final answer.
         return (
             "The research evidence was retrieved and analyzed, "
             "but the final synthesis could not be generated "
-            "because the Groq model rate limit was reached.\n\n"
+            "because the research model rate limit was reached.\n\n"
             f"Analysis:\n{analysis}"
         )
 

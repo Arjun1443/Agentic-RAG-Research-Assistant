@@ -31,6 +31,9 @@ from src.agents.diagram_agent import (
 from src.ingestion.vector_store import add_pdf_to_vector_database
 from src.ingestion.document_identity import file_sha256, normalized_text_hash
 from src.ingestion.pdf_loader import load_pdf
+from openai import APIError
+
+from src.inference import InferenceConfigurationError
 from src.retriever import (
     delete_document,
     document_exists,
@@ -360,12 +363,12 @@ async def research(request: ResearchRequest, authorization: str | None = Header(
         return result
     except HTTPException:
         raise
+    except InferenceConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
     except Exception as exc:
         message = str(exc).lower()
-        if "groq_api_key" in message:
-            raise HTTPException(503, "Configure GROQ_API_KEY before running research.") from exc
         if "rate limit" in message or "429" in message:
-            raise HTTPException(429, "The Groq model rate limit was reached.") from exc
+            raise HTTPException(429, "The research model rate limit was reached.") from exc
         raise HTTPException(502, "The research workflow could not be completed.") from exc
 
 
@@ -614,6 +617,8 @@ async def research_stream(
                 result,
             )
             yield f"data: {json.dumps({'event': 'completed', 'data': result}, default=str)}\n\n"
+        except APIError:
+            yield f"data: {json.dumps({'event': 'error', 'data': 'The research model endpoint could not complete the request.'})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'event': 'error', 'data': str(exc)})}\n\n"
 
